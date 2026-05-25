@@ -1,0 +1,7 @@
+node_modules/
+output/*
+!output/.gitkeep
+drafts/*
+!drafts/.gitkeep
+.env
+assets/logo.png

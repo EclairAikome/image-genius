@@ -1,0 +1,106 @@
+# === Ajinomoto SG — Multi-Channel Brand Configuration ===
+
+brand:
+  name: "Ajinomoto"
+
+# Global defaults (overridden per channel where specified)
+defaults:
+  image:
+    model: "gpt-image-1"
+    size: "1024x1536"          # 2:3 portrait, closest to Instagram 4:5
+    quality: "high"
+  output:
+    directory: "output"
+    format: "png"
+  style:
+    avoid_elements:
+      - text or typography of any kind
+      - watermarks
+      - logos or brand marks
+      - human faces (unless explicitly requested)
+      - cartoon or illustration style (unless explicitly requested)
+
+# === Channels ===
+
+channels:
+  dryfoods:
+    instagram_handle: "@ajinomotosg_dryfoods"
+    description: "Seasonings and Blendy coffee"
+    keywords:                  # For auto-detecting which channel the user means
+      - seasoning
+      - sauce
+      - umami
+      - Blendy
+      - coffee
+      - dry food
+      - powder
+      - stock
+      - broth
+      - MSG
+    style:
+      primary_colors: []       # TBD
+      photography_style: "professional food photography, editorial quality"
+      mood: "warm, homey, appetizing, comforting"
+      recurring_elements: []
+    logo:
+      file: "assets/logo-dryfoods.png"
+      # Per-SKU positions — to be filled later, e.g.:
+      # skus:
+      #   hon-dashi:
+      #     position: { x: 50, y: 50 }
+      #     width: 120
+      #   blendy:
+      #     position: { x: 800, y: 50 }
+      #     width: 100
+      position: { x: 50, y: 50 }
+      width: 120
+      opacity: 1.0
+
+  frozen:
+    instagram_handle: "@ajinomotosgfrozenfoods"
+    description: "Frozen food products"
+    keywords:
+      - frozen
+      - gyoza
+      - dumpling
+      - edamame
+      - takoyaki
+      - fried rice
+      - frozen food
+    style:
+      primary_colors: []       # TBD
+      photography_style: "professional food photography, editorial quality"
+      mood: "fresh, convenient, appetizing, family-friendly"
+      recurring_elements: []
+    logo:
+      file: "assets/logo-frozen.png"
+      # Per-SKU positions — to be filled later
+      position: { x: 50, y: 50 }
+      width: 120
+      opacity: 1.0
+
+  aminovital:
+    instagram_handle: "@aminovital_sg"
+    description: "AminoVITAL sports supplements"
+    keywords:
+      - AminoVITAL
+      - amino
+      - BCAA
+      - sports
+      - supplement
+      - protein
+      - workout
+      - exercise
+      - recovery
+      - electrolyte
+    style:
+      primary_colors:
+        - "#071D49"            # Navy Blue
+        - "#D4A84E"            # Warm Metallic Gold
+      photography_style: "dynamic sports and lifestyle photography, premium editorial quality"
+      mood: "energetic, professional, premium, performance-driven"
+      recurring_elements:
+        - navy blue and gold color accents
+        - clean modern aesthetic
+        - athletic/active lifestyle context
+    logo: null                 # No logo overlay for AminoVITAL
