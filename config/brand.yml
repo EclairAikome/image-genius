@@ -6,8 +6,8 @@ brand:
 # Global defaults (overridden per channel where specified)
 defaults:
   image:
-    model: "gpt-image-1"
-    size: "1024x1536"          # 2:3 portrait, closest to Instagram 4:5
+    model: "gpt-image-2"
+    size: "1088x1360"          # 4:5 vertical portrait — closest divisible-by-16 size to IG's ideal 1080x1350 (OpenAI requires multiples of 16). IG auto-downscales on upload.
     quality: "high"
   output:
     directory: "output"
@@ -20,13 +20,23 @@ defaults:
       - human faces (unless explicitly requested)
       - cartoon or illustration style (unless explicitly requested)
 
+# === Shared Asset Paths ===
+assets:
+  ajinomoto_logo: "assets/Ajinomoto_Group_Global_Brand_logo.jpg"
+  aminovital_logo:
+    # Single navy variant. The image model recolours to white when the generated
+    # scene's background is dark, per the prompt's logo section.
+    dark: "assets/AV Logo/AV LOGO.PNG"
+  logo_position_reference_dir: "assets/Logo_Position_Size_Reference"
+
 # === Channels ===
 
 channels:
   dryfoods:
     instagram_handle: "@ajinomotosg_dryfoods"
     description: "Seasonings and Blendy coffee"
-    keywords:                  # For auto-detecting which channel the user means
+    product_pictures_dir: "assets/Dry Food"
+    keywords:
       - seasoning
       - sauce
       - umami
@@ -43,22 +53,52 @@ channels:
       mood: "warm, homey, appetizing, comforting"
       recurring_elements: []
     logo:
-      file: "assets/logo-dryfoods.png"
-      # Per-SKU positions — to be filled later, e.g.:
-      # skus:
-      #   hon-dashi:
-      #     position: { x: 50, y: 50 }
-      #     width: 120
-      #   blendy:
-      #     position: { x: 800, y: 50 }
-      #     width: 100
+      # Default pipeline: this file is passed as a REFERENCE IMAGE to openai.images.edit;
+      # the prompt embeds a placement description derived from the SKU's logo_references.
+      # position/width/opacity below are ONLY used by the manual `add-logo.mjs` fallback.
+      file: "assets/Ajinomoto_Group_Global_Brand_logo.jpg"
       position: { x: 50, y: 50 }
-      width: 120
+      width: 160
       opacity: 1.0
+    # SKU catalog — folder under product_pictures_dir + reference images for logo placement
+    skus:
+      AJI-NO-MOTO:
+        dir: "AJI-NO-MOTO(R)"
+        aliases: [MSG, ajinomoto seasoning, umami seasoning, 味精, 味之素, monosodium glutamate]
+        logo_references: ["19 Jun MSG.png"]
+      AJI-SHIO:
+        dir: "AJI-SHIO(R)"
+        aliases: [AJISHIO, garlic salt, seasoned salt, 味盐]
+        logo_references: ["24 Jun AJISHIO.png"]
+      Blendy:
+        dir: "Blendy"
+        aliases: [coffee, latte, mocha, instant coffee, 咖啡]
+        logo_references: ["17 Jun Blendy.png", "26 Jun Blendy.png", "8 Jun Blendy.png"]
+      HONDASHI:
+        dir: "HONDASHI"
+        aliases: [hondashi, hon-dashi, dashi, bonito stock, 鲣鱼粉, 木鱼花]
+        logo_references: ["12 Jun Hondashi.png"]
+      Mayonnaise:
+        dir: "Mayonnaise"
+        aliases: [mayo, mayonnaise, japanese mayo, 蛋黄酱]
+        logo_references: ["10 Jun Mayo.png"]
+      SERI-AJI:
+        dir: "SERI-AJI(R)"
+        aliases: [seri-aji, seriaji, all-in-one seasoning, ayam, kampung, ikan bilis, cina]
+        logo_references:
+          - "4 Jun Seri Ayam.png"
+          - "4 Jun Seri Cina.png"
+          - "4 Jun Seri IkanBilis.png"
+          - "4 Jun Seri Kampung.png"
+      TUMIX:
+        dir: "TUMIX(R)"
+        aliases: [tumix, soup base, soup mix, 高汤]
+        logo_references: ["2 Jun Tumix.png"]
 
   frozen:
     instagram_handle: "@ajinomotosgfrozenfoods"
     description: "Frozen food products"
+    product_pictures_dir: "assets/Frozen Food"   # to be created when product photos are available
     keywords:
       - frozen
       - gyoza
@@ -73,15 +113,18 @@ channels:
       mood: "fresh, convenient, appetizing, family-friendly"
       recurring_elements: []
     logo:
-      file: "assets/logo-frozen.png"
-      # Per-SKU positions — to be filled later
+      # Same pattern as dryfoods — reference-image in default pipeline; position/width
+      # used only by manual `add-logo.mjs`.
+      file: "assets/Ajinomoto_Group_Global_Brand_logo.jpg"
       position: { x: 50, y: 50 }
-      width: 120
+      width: 160
       opacity: 1.0
+    skus: {}   # to be populated as frozen SKUs are added
 
   aminovital:
     instagram_handle: "@aminovital_sg"
     description: "AminoVITAL sports supplements"
+    product_pictures_dir: "assets/AV Product Picture"
     keywords:
       - AminoVITAL
       - amino
@@ -103,4 +146,32 @@ channels:
         - navy blue and gold color accents
         - clean modern aesthetic
         - athletic/active lifestyle context
-    logo: null                 # No logo overlay for AminoVITAL
+    # Logo: top-left corner. The model auto-recolours (white on dark, navy on light)
+    # based on the generated scene tone. No Ajinomoto logo on AminoVITAL content.
+    logo:
+      # Default pipeline: this file is passed as a REFERENCE IMAGE to openai.images.edit;
+      # the prompt instructs the model to render it top-left and recolour as needed.
+      # position/width/opacity below are ONLY used by the manual `add-logo.mjs` fallback.
+      file: "assets/AV Logo/AV LOGO.PNG"
+      position: { x: 50, y: 50 }
+      width: 180
+      opacity: 1.0
+    skus:
+      BCAA-Jelly:
+        dir: "BCAA Jelly"
+        aliases: [BCAA, BCAA jelly, jelly, amino jelly]
+      GOLD:
+        dir: "GOLD"
+        aliases: [gold, AV gold, premium]
+      PRO:
+        dir: "PRO"
+        aliases: [pro, AV pro]
+      Perfect-Energy:
+        dir: "Perfect Energy"
+        aliases: [perfect energy, energy gel, energy]
+      amino-protein:
+        dir: "amino protein"
+        aliases: [amino protein, protein, protein powder]
+      aminoshot:
+        dir: "aminoshot"
+        aliases: [aminoshot, amino shot, shot]

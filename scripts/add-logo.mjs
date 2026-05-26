@@ -4,57 +4,71 @@ import path from "path";
 import yaml from "js-yaml";
 
 const args = process.argv.slice(2);
-let inputPath = null;
-let outputPath = null;
-let channelName = null;
+const opts = {
+  input: null,
+  output: null,
+  channel: null,
+  logo: null,
+  x: null,
+  y: null,
+  width: null,
+  opacity: null,
+};
 
 for (let i = 0; i < args.length; i++) {
-  if (args[i] === "--input" && args[i + 1]) inputPath = args[i + 1];
-  if (args[i] === "--output" && args[i + 1]) outputPath = args[i + 1];
-  if (args[i] === "--channel" && args[i + 1]) channelName = args[i + 1];
+  const flag = args[i];
+  const val = args[i + 1];
+  if (flag === "--input" && val) opts.input = val;
+  if (flag === "--output" && val) opts.output = val;
+  if (flag === "--channel" && val) opts.channel = val;
+  if (flag === "--logo" && val) opts.logo = val;
+  if (flag === "--x" && val !== undefined) opts.x = parseInt(val, 10);
+  if (flag === "--y" && val !== undefined) opts.y = parseInt(val, 10);
+  if (flag === "--width" && val !== undefined) opts.width = parseInt(val, 10);
+  if (flag === "--opacity" && val !== undefined) opts.opacity = parseFloat(val);
 }
 
-if (!inputPath) {
-  console.error("Usage: node add-logo.mjs --input <image-path> [--output <output-path>] [--channel <name>]");
+if (!opts.input) {
+  console.error(
+    "Usage: node add-logo.mjs --input <image-path> [--output <path>] [--channel <name>] " +
+    "[--logo <path>] [--x <px>] [--y <px>] [--width <px>] [--opacity <0-1>]"
+  );
   process.exit(1);
 }
 
 const config = yaml.load(await fs.readFile("config/brand.yml", "utf-8"));
 
-let logoConfig;
-if (channelName && config.channels?.[channelName]?.logo) {
-  logoConfig = config.channels[channelName].logo;
-} else {
-  const firstChannel = Object.values(config.channels || {}).find((ch) => ch.logo);
-  logoConfig = firstChannel?.logo || {};
+// Channel logo config provides defaults; CLI flags override.
+let channelLogo = {};
+if (opts.channel && config.channels?.[opts.channel]?.logo) {
+  channelLogo = config.channels[opts.channel].logo;
 }
 
-if (!logoConfig || logoConfig === null) {
-  console.log("This channel has no logo configured. Skipping.");
-  process.exit(0);
-}
+const logoFile = opts.logo || channelLogo.file;
+const logoWidth = opts.width ?? channelLogo.width ?? 160;
+const posX = opts.x ?? channelLogo.position?.x ?? 50;
+const posY = opts.y ?? channelLogo.position?.y ?? 50;
+const opacity = opts.opacity ?? channelLogo.opacity ?? 1.0;
 
-const logoFile = logoConfig.file || "assets/logo.png";
-const logoWidth = logoConfig.width || 120;
-const posX = logoConfig.position?.x ?? 50;
-const posY = logoConfig.position?.y ?? 50;
-const opacity = logoConfig.opacity ?? 1.0;
+if (!logoFile) {
+  console.error("ERROR: No logo path provided. Pass --logo <path> or --channel <name> with a configured logo.");
+  process.exit(1);
+}
 
 try {
   await fs.access(logoFile);
 } catch {
   console.error(`ERROR: Logo file not found at '${logoFile}'.`);
-  console.error("Place your company logo at assets/logo.png and try again.");
   process.exit(1);
 }
 
-if (!outputPath) {
-  const parsed = path.parse(inputPath);
-  outputPath = path.join(parsed.dir, `${parsed.name}-final${parsed.ext}`);
-}
+const outputPath = opts.output || (() => {
+  const parsed = path.parse(opts.input);
+  return path.join(parsed.dir, `${parsed.name}-final${parsed.ext}`);
+})();
 
-console.log(`Input: ${inputPath}`);
-console.log(`Logo: ${logoFile} (width: ${logoWidth}px, position: ${posX},${posY})`);
+console.log(`Input: ${opts.input}`);
+console.log(`Logo:  ${logoFile} (width: ${logoWidth}px, position: ${posX},${posY}, opacity: ${opacity})`);
 
 let logoBuffer = await sharp(logoFile)
   .resize({ width: logoWidth })
@@ -70,7 +84,7 @@ if (opacity < 1.0) {
     .toBuffer();
 }
 
-await sharp(inputPath)
+await sharp(opts.input)
   .composite([
     {
       input: logoBuffer,

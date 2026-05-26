@@ -4,4 +4,6 @@ output/*
 drafts/*
 !drafts/.gitkeep
 .env
+.env.*
+!.env.example
 assets/logo.png

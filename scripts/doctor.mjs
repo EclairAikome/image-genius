@@ -1,4 +1,5 @@
 import fs from "fs/promises";
+import path from "path";
 import yaml from "js-yaml";
 
 const checks = [];
@@ -6,6 +7,7 @@ const ok = (name) => checks.push({ name, status: "OK" });
 const warn = (name, msg) => checks.push({ name, status: "WARN", msg });
 const fail = (name, msg) => checks.push({ name, status: "FAIL", msg });
 
+// .env
 try {
   await fs.access(".env");
   const env = await fs.readFile(".env", "utf-8");
@@ -20,9 +22,10 @@ try {
   fail(".env file missing", "Copy .env.example to .env and add your API key");
 }
 
+// brand.yml
+let config;
 try {
-  const raw = await fs.readFile("config/brand.yml", "utf-8");
-  const config = yaml.load(raw);
+  config = yaml.load(await fs.readFile("config/brand.yml", "utf-8"));
   if (config.brand?.name) {
     ok(`brand.yml — brand: "${config.brand.name}"`);
   } else {
@@ -41,6 +44,7 @@ try {
   fail("config/brand.yml missing or invalid", "Check config/brand.yml syntax");
 }
 
+// Dependencies
 try {
   await fs.access("node_modules/openai");
   ok("Dependencies installed (openai)");
@@ -55,27 +59,97 @@ try {
   fail("Dependencies not installed (sharp)", "Run: npm install");
 }
 
-try {
-  await fs.access("assets/logo.png");
-  ok("Logo file present (assets/logo.png)");
-} catch {
-  warn("No logo file", "Place your logo at assets/logo.png for automatic overlay");
+// Brand logos
+const ajiLogo = config?.assets?.ajinomoto_logo;
+if (ajiLogo) {
+  try {
+    await fs.access(ajiLogo);
+    ok(`Ajinomoto logo present (${ajiLogo})`);
+  } catch {
+    fail(`Ajinomoto logo missing at ${ajiLogo}`, "Place the Ajinomoto brand logo at the configured path");
+  }
 }
 
-try {
-  await fs.access("drafts");
-  ok("Drafts directory exists");
-} catch {
-  warn("Drafts directory missing", "Create drafts/ directory");
+const avDark = config?.assets?.aminovital_logo?.dark;
+if (avDark) {
+  try {
+    await fs.access(avDark);
+    ok(`AminoVITAL logo (dark) present (${avDark})`);
+  } catch {
+    fail(`AminoVITAL dark logo missing at ${avDark}`, "Place the navy AV logo at the configured path");
+  }
 }
 
-try {
-  await fs.access("output");
-  ok("Output directory exists");
-} catch {
-  warn("Output directory missing", "Create output/ directory");
+
+// Logo position reference dir
+const refDir = config?.assets?.logo_position_reference_dir;
+if (refDir) {
+  try {
+    const entries = await fs.readdir(refDir);
+    const pngCount = entries.filter((f) => f.toLowerCase().endsWith(".png")).length;
+    if (pngCount > 0) {
+      ok(`Logo position references present (${pngCount} files in ${refDir})`);
+    } else {
+      warn(`No reference images in ${refDir}`, "Reference posts inform per-SKU logo placement");
+    }
+  } catch {
+    warn(`${refDir} missing`, "Create the directory and add reference posts per SKU");
+  }
 }
 
+// Product picture directories per channel
+for (const [channelName, channel] of Object.entries(config?.channels || {})) {
+  const dir = channel.product_pictures_dir;
+  if (!dir) continue;
+  try {
+    const entries = await fs.readdir(dir);
+    const subDirs = entries.filter((e) => !e.startsWith(".") && e !== "Thumbs.db");
+    if (subDirs.length > 0) {
+      ok(`Product pictures: ${channelName} (${subDirs.length} SKU folders in ${dir})`);
+    } else {
+      warn(`Product pictures: ${channelName} dir empty (${dir})`, "Add SKU subfolders with product images");
+    }
+  } catch {
+    if (channelName === "frozen") {
+      warn(`Product pictures: ${channelName} dir missing (${dir})`, "Will halt at generation time until SKU folder exists");
+    } else {
+      fail(`Product pictures: ${channelName} dir missing (${dir})`, "Create the directory and add SKU subfolders");
+    }
+  }
+}
+
+// Per-SKU folders inside each channel
+for (const [channelName, channel] of Object.entries(config?.channels || {})) {
+  const dir = channel.product_pictures_dir;
+  const skus = channel.skus || {};
+  if (!dir || Object.keys(skus).length === 0) continue;
+  const missing = [];
+  for (const [skuId, sku] of Object.entries(skus)) {
+    if (!sku.dir) continue;
+    try {
+      const skuPath = path.join(dir, sku.dir);
+      const files = await fs.readdir(skuPath);
+      const usable = files.filter((f) => /\.(jpg|jpeg|png|webp)$/i.test(f));
+      if (usable.length === 0) missing.push(`${skuId} (folder empty)`);
+    } catch {
+      missing.push(`${skuId} (folder missing: ${sku.dir})`);
+    }
+  }
+  if (missing.length === 0) {
+    ok(`SKU coverage: ${channelName} — all ${Object.keys(skus).length} SKUs have product images`);
+  } else {
+    warn(`SKU coverage: ${channelName} — ${missing.length} missing`, missing.join("; "));
+  }
+}
+
+// Drafts & output
+try { await fs.access("drafts"); ok("Drafts directory exists"); }
+catch { warn("Drafts directory missing", "Create drafts/ directory"); }
+
+try { await fs.access("output"); ok("Output directory exists"); }
+catch { warn("Output directory missing", "Create output/ directory"); }
+
+// Render
 console.log("\n=== Instagram Ops — Environment Check ===\n");
 for (const c of checks) {
   const icon = c.status === "OK" ? "[OK]" : c.status === "WARN" ? "[!!]" : "[XX]";

@@ -1,5 +1,6 @@
-import OpenAI from "openai";
+import OpenAI, { toFile } from "openai";
 import fs from "fs/promises";
+import { createReadStream } from "fs";
 import path from "path";
 import yaml from "js-yaml";
 import "dotenv/config";
@@ -7,10 +8,12 @@ import "dotenv/config";
 const args = process.argv.slice(2);
 let promptFile = "drafts/last-prompt.json";
 let directPrompt = null;
+const referenceImages = [];
 
 for (let i = 0; i < args.length; i++) {
   if (args[i] === "--prompt-file" && args[i + 1]) promptFile = args[i + 1];
   if (args[i] === "--prompt" && args[i + 1]) directPrompt = args[i + 1];
+  if (args[i] === "--reference-image" && args[i + 1]) referenceImages.push(args[i + 1]);
 }
 
 const config = yaml.load(await fs.readFile("config/brand.yml", "utf-8"));
@@ -18,6 +21,7 @@ const defaults = config.defaults || {};
 
 let prompt, description, channel;
 let settingsOverride = {};
+let promptDataReferences = [];
 
 if (directPrompt) {
   prompt = directPrompt;
@@ -28,6 +32,20 @@ if (directPrompt) {
   description = promptData.description || "image";
   channel = promptData.channel;
   settingsOverride = promptData.settings || {};
+  promptDataReferences = promptData.reference_images || [];
+}
+
+// CLI --reference-image flags take precedence; otherwise fall back to draft file
+const refs = referenceImages.length > 0 ? referenceImages : promptDataReferences;
+
+// Verify each reference image exists
+for (const ref of refs) {
+  try {
+    await fs.access(ref);
+  } catch {
+    console.error(`ERROR: Reference image not found: ${ref}`);
+    process.exit(1);
+  }
 }
 
 const model = settingsOverride.model || defaults.image?.model || "gpt-image-1";
@@ -46,13 +64,46 @@ const openai = new OpenAI();
 console.log(`Channel: ${channel || "(none)"}`);
 console.log(`Model: ${model}`);
 console.log(`Size: ${size} | Quality: ${quality}`);
+console.log(`Reference images: ${refs.length > 0 ? refs.join(", ") : "(none)"}`);
 console.log(`Prompt preview: ${prompt.substring(0, 120)}...`);
 console.log("Generating...");
 
 let imageBuffer;
 
 try {
-  if (model.startsWith("gpt-image")) {
+  if (refs.length > 0) {
+    // Use images.edit with reference images (gpt-image-1 only)
+    if (!model.startsWith("gpt-image")) {
+      console.error(`ERROR: Reference images require gpt-image-1; got model "${model}".`);
+      process.exit(1);
+    }
+    const mimeOf = (p) => {
+      const ext = path.extname(p).toLowerCase();
+      if (ext === ".jpg" || ext === ".jpeg") return "image/jpeg";
+      if (ext === ".png") return "image/png";
+      if (ext === ".webp") return "image/webp";
+      console.error(`ERROR: Unsupported reference image extension: ${ext}. Use jpg/jpeg/png/webp.`);
+      process.exit(1);
+    };
+    const imageFiles = await Promise.all(
+      refs.map(async (p) => toFile(createReadStream(p), path.basename(p), { type: mimeOf(p) }))
+    );
+    const response = await openai.images.edit({
+      model,
+      image: imageFiles.length === 1 ? imageFiles[0] : imageFiles,
+      prompt,
+      n: 1,
+      size,
+      quality,
+    });
+    const data = response.data[0];
+    if (data.b64_json) {
+      imageBuffer = Buffer.from(data.b64_json, "base64");
+    } else if (data.url) {
+      const res = await fetch(data.url);
+      imageBuffer = Buffer.from(await res.arrayBuffer());
+    }
+  } else if (model.startsWith("gpt-image")) {
     const response = await openai.images.generate({
       model,
       prompt,
