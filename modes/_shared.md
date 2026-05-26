@@ -1,87 +1,90 @@
 # Shared Context — Instagram Ops
 
 ## Sources of Truth (precedence order)
-1. `config/brand.yml` — brand identity, colors, style, logo config
-2. `templates/*.md` — prompt structure templates per content type
-3. `drafts/last-prompt.json` — most recent generation state
+1. `config/brand.yml` — brand identity, channels, SKU catalog, asset paths
+2. `config/user-prefs.json` — user's model and mode preferences
+3. `templates/*.md` — prompt structure templates per content type
+4. `drafts/last-prompt.json` — most recent generation state
+
+## Initialization
+
+On first invocation, check `config/user-prefs.json`:
+- If `initialized` is false → run initialization flow (see SKILL.md)
+- If `initialized` is true → proceed with saved preferences
 
 ## Prompt Engineering Rules
 
 ### Consistency Enforcement
-Every generated prompt MUST follow this master structure, regardless of content type:
+Every generated prompt MUST follow the template's section order exactly. Templates now have 12-13 sections to maximize reproducibility.
 
-```
-[Shot Type & Photography Style]. [Main Subject with specific details]. [Setting/Background description]. [Composition & framing]. [Lighting setup]. [Color palette & tones]. [Supporting elements & props]. [Atmosphere & mood]. [Technical specifications].
+### Prompt Length — CRITICAL
+- **Minimum**: 600 words
+- **Target**: 800-1000 words
+- **Maximum**: 1200 words
+- gpt-image-2 produces significantly more stable, consistent results with longer, highly specific prompts
+- Short prompts (<300 words) leave too many details to the model's random interpretation
+- Every ambiguity in the prompt = a dimension of randomness in the output
 
-Do not include: [negative prompt items].
-```
+### Stability Through Specificity
+The #1 principle for stable outputs: **leave nothing to chance**. Every aspect of the image must be explicitly described:
+
+1. **Colors** — Always include hex codes: "warm amber (#FFB74D)" not just "warm amber"
+2. **Positions** — Use grid coordinates: "at the upper-right third intersection" not just "on the right"
+3. **Sizes** — Use frame percentages: "occupying 55% of frame height" not just "large"
+4. **Lighting angles** — Use clock positions: "key light from 10 o'clock" not just "from the left"
+5. **Distances** — Use relative measures: "background at approximately 2m distance" not just "far background"
+6. **Textures** — Name the finish: "satin matte with micro-grain" not just "smooth"
+7. **Quantities** — Be exact: "three slices" not "some slices"
+8. **Blur** — Specify bokeh: "smooth circular bokeh at f/2.8" not just "blurred"
 
 ### Language Rules
-- User input: any language (Chinese, English, etc.)
+- User input: any language (Chinese, English, Malay, etc.)
 - Generated prompts: ALWAYS in English
-- When translating food/cultural terms, use the most widely recognized English name,
-  followed by the specific regional name if it adds clarity
-  (e.g., "Japanese tonkotsu ramen" not just "noodle soup")
+- Translate food/cultural terms to the most specific English name + regional name
+  (e.g., "Japanese Hakata-style tonkotsu ramen" not "noodle soup")
 
-### Quality Anchors (always included in every prompt)
-These phrases are prepended or woven into every prompt to ensure baseline quality:
-- "professional commercial photography"
-- "high resolution, sharp focus"
-- "studio-quality lighting"
+### Quality Anchors (always present in every prompt)
+These phrases MUST appear in every prompt's technical section:
+- "ultra-high resolution"
+- "tack-sharp focus on the primary subject"
+- "professional color grading"
+- "no visual artifacts, no AI generation tells"
 
-### Universal Negative Prompt
-Always append these to every prompt's negative section:
-- text, typography, letters, words, numbers
-- watermarks, logos, brand marks, signatures
-- blurry, low quality, pixelated, grainy
-- distorted proportions, unnatural colors
-- AI artifacts, obvious AI generation tells
+### Universal Negative Prompt (always appended)
+- text, typography, letters, words, numbers (UNLESS overlay text is specifically requested)
+- watermarks, logos, brand marks, signatures (UNLESS the brand logo is explicitly part of the prompt)
+- blurry areas on the main subject
+- distorted geometry, warped text on packaging
+- AI artifacts, melted details, impossible reflections
 
 ### Output Specifications
-- File naming: `{YYYY-MM-DD}-{slug}-{index}.{format}`
-  - slug: 2-3 word kebab-case derived from description
-  - index: auto-incrementing if multiple generations same day
-  - format: from `config/brand.yml` output.format
-- Always save to the directory specified in `config/brand.yml` output.directory
+- File naming: `{YYYY-MM-DD}-{channel}-{slug}-{index}.{format}`
+- Save to `config/brand.yml → defaults.output.directory`
 
-## Product Reference Pictures (HARD REQUIREMENT)
-- Every image generation MUST attach the official product photo(s) as reference via `--reference-image`.
-  Otherwise GPT renders product labels / packaging text with severe distortion.
-- Product photos live under `<channels.<channel>.product_pictures_dir>/<sku.dir>/`.
-  Usable extensions: `.jpg`, `.jpeg`, `.png`, `.webp`. Ignore `Thumbs.db`.
-- If the SKU's folder is missing or empty → **HALT** and prompt the user to provide a product photo.
-  Do NOT generate without references.
-- Prefer 1-3 clean photos: transparent-bg or white-bg product shots beat busy lifestyle shots as references.
+## Image Generation Modes
 
-## Logo Rules (one-shot generation, no post-processing)
-- Every generated image bakes the logo IN during model inference. The logo file is passed as a
-  reference image to `openai.images.edit` and the prompt describes placement/colour. We do NOT
-  run `add-logo.mjs` in the default pipeline — the model handles compositing, scaling, and
-  recolouring better than a deterministic overlay can.
-- **dryfoods / frozen** → Ajinomoto logo (single global JPG at `config.assets.ajinomoto_logo`)
-  is REQUIRED. Position/size vary per SKU. At draft time, inspect the SKU's
-  `logo_references` images in `assets/Logo_Position_Size_Reference/` and translate the past-post
-  layout into a plain-English placement description embedded in the prompt
-  (e.g., "top-right corner, ~15% of canvas width, tagline 'Eat Well, Live Well.' arranged above
-  the Aj mark"). Do NOT pass the position-reference image itself to the API — only the global
-  logo file — to avoid the model copying food / recipe-step elements from the reference.
-- **aminovital** → AV logo (`config.assets.aminovital_logo.dark`) only. Place top-left, ~15% of
-  canvas width. In the prompt, instruct the model to render white on dark backgrounds, navy on
-  light backgrounds — model auto-selects based on the generated scene's tone. No Ajinomoto logo
-  on AV posts.
-- Never put both logos on the same image.
-- The reference-image array order matters: product photo(s) first, logo file LAST. The prompt
-  refers to "the second/last reference image" for logo placement.
+### API Mode
+- Calls OpenAI API directly for image generation
+- Requires `OPENAI_API_KEY` in `.env`
+- Automated end-to-end pipeline
 
-## Manual Logo Overlay (fallback only)
-- `add-logo.mjs` + `add-logo <path>` mode still exist for the case where the model output's logo
-  is wrong and the user wants a deterministic sharp composite onto an existing image. Not part
-  of the default pipeline.
+### Manual Mode (ChatGPT Plus)
+- Generates the full prompt and copies to clipboard
+- User pastes into ChatGPT to generate using Plus subscription (free)
+- User saves the generated image to `output/` folder
+- Pipeline continues from there (logo overlay, etc.)
+
+## Refinement Workflow
+
+When the user wants to refine a generated image:
+1. **Do NOT edit the existing image** — always regenerate from scratch
+2. **Use reverse-prompt** to extract a detailed reproduction prompt from the satisfactory image
+3. User makes targeted edits to the reversed prompt
+4. Regenerate with the modified prompt → result will be much closer to the original
 
 ## Guardrails
-- NEVER include readable text in image prompts — image models render text poorly
-- NEVER reuse a previous prompt for regeneration — always create fresh
-- NEVER edit/modify a generated image — always regenerate from scratch if unsatisfied
+- NEVER generate with prompts shorter than 400 words — add detail until minimum is met
+- NEVER reuse a previous prompt verbatim for regeneration — always create fresh
+- NEVER edit/modify a generated image — always regenerate from scratch
 - NEVER hardcode brand colors in templates — always read from config
-- NEVER skip the product-reference step — the generated image will look broken without it
-- When in doubt about channel, SKU, or content type, ASK the user rather than guessing
+- When in doubt about content type or channel, ASK the user

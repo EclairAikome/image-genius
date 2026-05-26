@@ -8,16 +8,26 @@ import "dotenv/config";
 const args = process.argv.slice(2);
 let promptFile = "drafts/last-prompt.json";
 let directPrompt = null;
+let forceMode = null;
 const referenceImages = [];
 
 for (let i = 0; i < args.length; i++) {
   if (args[i] === "--prompt-file" && args[i + 1]) promptFile = args[i + 1];
   if (args[i] === "--prompt" && args[i + 1]) directPrompt = args[i + 1];
   if (args[i] === "--reference-image" && args[i + 1]) referenceImages.push(args[i + 1]);
+  if (args[i] === "--mode" && args[i + 1]) forceMode = args[i + 1]; // "api" or "manual"
 }
 
 const config = yaml.load(await fs.readFile("config/brand.yml", "utf-8"));
 const defaults = config.defaults || {};
+
+// Load user preferences for default image gen mode
+let prefs = {};
+try {
+  prefs = JSON.parse(await fs.readFile("config/user-prefs.json", "utf-8"));
+} catch {}
+
+const imageMode = forceMode || prefs.image_generation?.mode || "api";
 
 let prompt, description, channel;
 let settingsOverride = {};
@@ -28,8 +38,9 @@ if (directPrompt) {
   description = directPrompt;
 } else {
   const promptData = JSON.parse(await fs.readFile(promptFile, "utf-8"));
-  prompt = promptData.prompt;
-  description = promptData.description || "image";
+  // Support both standard drafts and reverse-prompt drafts
+  prompt = promptData.prompt || promptData.reversed_prompt;
+  description = promptData.description || promptData.original_description || "image";
   channel = promptData.channel;
   settingsOverride = promptData.settings || {};
   promptDataReferences = promptData.reference_images || [];
@@ -48,14 +59,49 @@ for (const ref of refs) {
   }
 }
 
-const model = settingsOverride.model || defaults.image?.model || "gpt-image-1";
-const size = settingsOverride.size || defaults.image?.size || "1024x1536";
+const model = settingsOverride.model || prefs.image_generation?.model || defaults.image?.model || "gpt-image-2";
+const size = settingsOverride.size || defaults.image?.size || "1088x1360";
 const quality = settingsOverride.quality || defaults.image?.quality || "high";
 const outputDir = defaults.output?.directory || "output";
 const format = defaults.output?.format || "png";
 
+// ─── Manual Mode ───
+if (imageMode === "manual") {
+  console.log("\n╔══════════════════════════════════════════════════════════════╗");
+  console.log("║                   MANUAL MODE — ChatGPT Plus               ║");
+  console.log("╚══════════════════════════════════════════════════════════════╝\n");
+  console.log("Copy the prompt below and paste it into ChatGPT.\n");
+  console.log("────────────────── PROMPT START ──────────────────\n");
+  console.log(prompt);
+  console.log("\n──────────────────  PROMPT END  ──────────────────\n");
+
+  // Also copy to clipboard if possible
+  try {
+    const { execSync } = await import("child_process");
+    execSync("clip", { input: prompt });
+    console.log("[Prompt copied to clipboard]\n");
+  } catch {
+    // clipboard copy failed, that's OK
+  }
+
+  console.log("After generating in ChatGPT:");
+  console.log(`  1. Save the image to the ${outputDir}/ folder`);
+  console.log('  2. Return here and tell the skill the filename\n');
+
+  // Save prompt file path for the skill to reference later
+  const date = new Date().toISOString().split("T")[0];
+  const prefix = channel ? `${channel}-` : "";
+  const pendingPath = path.join(outputDir, `${date}-${prefix}PENDING.txt`);
+  await fs.mkdir(outputDir, { recursive: true });
+  await fs.writeFile(pendingPath, `Prompt file: ${promptFile}\nTimestamp: ${new Date().toISOString()}\n`);
+  console.log(`Pending marker: ${pendingPath}`);
+  process.exit(0);
+}
+
+// ─── API Mode ───
 if (!process.env.OPENAI_API_KEY) {
   console.error("ERROR: OPENAI_API_KEY not set. Copy .env.example to .env and add your key.");
+  console.error("Or switch to manual mode: node scripts/init.mjs --reset");
   process.exit(1);
 }
 
@@ -65,16 +111,16 @@ console.log(`Channel: ${channel || "(none)"}`);
 console.log(`Model: ${model}`);
 console.log(`Size: ${size} | Quality: ${quality}`);
 console.log(`Reference images: ${refs.length > 0 ? refs.join(", ") : "(none)"}`);
-console.log(`Prompt preview: ${prompt.substring(0, 120)}...`);
+console.log(`Prompt length: ${prompt.length} chars / ~${prompt.split(/\s+/).length} words`);
+console.log(`Prompt preview: ${prompt.substring(0, 150)}...`);
 console.log("Generating...");
 
 let imageBuffer;
 
 try {
   if (refs.length > 0) {
-    // Use images.edit with reference images (gpt-image-1 only)
     if (!model.startsWith("gpt-image")) {
-      console.error(`ERROR: Reference images require gpt-image-1; got model "${model}".`);
+      console.error(`ERROR: Reference images require gpt-image model; got "${model}".`);
       process.exit(1);
     }
     const mimeOf = (p) => {
@@ -121,6 +167,7 @@ try {
   } else {
     const dalleQuality = quality === "high" ? "hd" : "standard";
     const dalleSize =
+      size === "1088x1360" ? "1024x1792" :
       size === "1024x1536" ? "1024x1792" :
       size === "1536x1024" ? "1792x1024" :
       "1024x1024";

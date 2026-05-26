@@ -1,14 +1,17 @@
 {
   "name": "instagram-ops",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "AI-powered Instagram content creation workflow for Claude Code",
   "type": "module",
   "scripts": {
     "generate": "node scripts/generate-image.mjs",
     "add-logo": "node scripts/add-logo.mjs",
+    "reverse": "node scripts/reverse-prompt.mjs",
+    "init": "node scripts/init.mjs",
     "doctor": "node scripts/doctor.mjs"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
     "dotenv": "^16.4.0",
     "js-yaml": "^4.1.0",
     "openai": "^4.73.0",
