@@ -32,18 +32,25 @@ const imageMode = forceMode || prefs.image_generation?.mode || "api";
 let prompt, description, channel;
 let settingsOverride = {};
 let promptDataReferences = [];
+let productRefImages = [];
+let logoFileFromDraft = null;
+let logoPositionRefs = [];
+let skuFromDraft = null;
 
 if (directPrompt) {
   prompt = directPrompt;
   description = directPrompt;
 } else {
   const promptData = JSON.parse(await fs.readFile(promptFile, "utf-8"));
-  // Support both standard drafts and reverse-prompt drafts
   prompt = promptData.prompt || promptData.reversed_prompt;
   description = promptData.description || promptData.original_description || "image";
   channel = promptData.channel;
+  skuFromDraft = promptData.sku || null;
   settingsOverride = promptData.settings || {};
   promptDataReferences = promptData.reference_images || [];
+  productRefImages = promptData.product_reference_images || [];
+  logoFileFromDraft = promptData.logo_file || null;
+  logoPositionRefs = promptData.logo_position_reference_images || [];
 }
 
 // CLI --reference-image flags take precedence; otherwise fall back to draft file
@@ -94,52 +101,174 @@ if (imageMode === "free-quota") {
   const filename = `${date}-${prefix}${slug}-${String(index).padStart(2, "0")}.${format}`;
   const outputPath = path.resolve(outputDir, filename);
 
-  const refsText = refs.length > 0
-    ? `\nUse these reference images (preserve product packaging from #1, embed logo from the last one as specified in the prompt):\n${refs.map((p, i) => `  ${i + 1}. ${path.resolve(p)}`).join("\n")}\n`
-    : "";
+  // Build reference image instructions
+  const productRefsAbs = productRefImages.map((p) => path.resolve(p));
+  const logoFileAbs = logoFileFromDraft ? path.resolve(logoFileFromDraft) : null;
+  const logoPositionRefsAbs = logoPositionRefs.map((p) => path.resolve(p));
 
-  const codexRequest = `You have access to OpenAI's gpt-image-2 image generation API through your authenticated session. Please generate an image using this exact prompt:
+  let referenceBlock = "";
+  if (productRefsAbs.length > 0 || logoFileAbs || logoPositionRefsAbs.length > 0) {
+    referenceBlock = `\n==================== REFERENCE IMAGES (MANDATORY) ====================\n`;
+    if (productRefsAbs.length > 0) {
+      referenceBlock += `\n[A] PRODUCT PHOTO REFERENCE — Pass this file directly to the image_gen tool as an input/reference image. The generated image MUST preserve every text character, color, design element, and packaging detail from this photo:\n${productRefsAbs.map((p) => `    ${p}`).join("\n")}\n`;
+    }
+    if (logoFileAbs) {
+      referenceBlock += `\n[B] BRAND LOGO FILE — Pass this file as a second input/reference to the image_gen tool. The generated image MUST contain this exact logo (preserving its glyph shapes and color) at the position specified in the prompt:\n    ${logoFileAbs}\n`;
+    }
+    if (logoPositionRefsAbs.length > 0) {
+      referenceBlock += `\n[C] LOGO POSITION REFERENCES — Past Instagram posts showing where the brand logo goes for this SKU. INSPECT these images visually using your view/read tool to determine the EXACT corner, size (as % of canvas width), padding, and tagline arrangement. Do NOT pass these as image_gen inputs — they are for YOU to inspect, then describe the placement to image_gen in the prompt:\n${logoPositionRefsAbs.map((p) => `    ${p}`).join("\n")}\n`;
+    }
+    referenceBlock += `\n========================================================================\n`;
+  }
 
-==================== IMAGE PROMPT START ====================
+  const codexRequest = `TASK: Generate an Instagram brand image using your built-in image_gen tool, with the supplied reference images as MANDATORY inputs.
+
+This is NOT pure text-to-image. You MUST use the reference images:
+  - Product photo as a packaging-fidelity reference (so the generated package matches the real product)
+  - Brand logo file as the actual logo to embed
+  - Position-reference past posts as visual cues for logo placement (YOU inspect them)
+
+==================== IMAGE PROMPT (use verbatim) ====================
 ${prompt}
-==================== IMAGE PROMPT END ======================
-${refsText}
-Image specifications:
-  - Model: ${model}
-  - Size: ${size}
-  - Quality: ${quality}
-  - Output format: ${format}
+======================================================================
+${referenceBlock}
+==================== STEP-BY-STEP INSTRUCTIONS ====================
 
-Save the generated image to this absolute path:
+STEP 1 — Inspect position references (if any):
+  Use your file/image viewing tool to OPEN each path listed under [C] above. From those past Instagram posts, note the logo's EXACT corner, size as % of canvas width, padding from edges, and any tagline layout. This information overrides any vague placement language in the image prompt.
+
+STEP 2 — Call image_gen in EDIT/COMPOSITION mode:
+  Invoke your built-in image_gen tool. Pass:
+    - The full image prompt above (verbatim, do not summarize)
+    - The product photo from [A] as an input/reference image (preserve packaging exactly)
+    - The brand logo file from [B] as a second input/reference (embed at the location derived from step 1)
+  If image_gen has separate parameters for "main input image" vs "additional references", use the product photo as the main input and the logo as an additional reference.
+
+STEP 3 — Save the result:
+  Save the generated image to this absolute path:
+    ${outputPath}
+
+STEP 4 — Output (only this, one line):
   ${outputPath}
 
-CRITICAL:
-  - Do NOT modify or summarize the image prompt
-  - Use the full prompt as-is when calling the image API
-  - Save the binary image file to the exact path above
-  - After saving, output ONLY the absolute file path on the last line`;
+==================== SPECS ====================
+  Model: ${model}    Size: ${size}    Quality: ${quality}    Format: ${format}
 
-  console.log("→ Invoking codex (this may take 2-5 min for full pipeline: planning + image_gen tool + file save)...\n");
-  try {
-    const { runCodex } = await import("../lib/cli-runner.mjs");
-    const result = await runCodex(codexRequest, { forImageGen: true });
-    console.log("--- Codex output ---");
-    console.log(result.substring(0, 500) + (result.length > 500 ? "...(truncated)" : ""));
-    console.log("--- End codex output ---\n");
+CRITICAL RULES:
+  - References under [A] and [B] MUST be passed to image_gen as actual image inputs, not described in text
+  - References under [C] MUST be inspected visually by you, then their visual information used to instruct image_gen
+  - Do NOT modify, summarize, or shorten the image prompt
+  - Do NOT fabricate new packaging text, label graphics, or logo variants — use only what's in the reference files
+  - Save the binary PNG to the exact path above`;
 
-    try {
-      const stats = await fs.stat(outputPath);
-      console.log(`✓ Image saved: ${outputPath}`);
-      console.log(`  Size: ${(stats.size / 1024).toFixed(0)} KB`);
-    } catch {
-      console.error(`\n⚠  Codex finished but image not found at ${outputPath}`);
-      console.error("   Codex CLI may not have direct image generation access.");
-      console.error("   Try: imagegen init  →  switch to 'API paid' mode.");
-      process.exit(1);
+  const verbose = process.env.IMAGEGEN_VERBOSE === "1";
+  const { spawn } = await import("child_process");
+  const HARD_TIMEOUT_MS = 600_000;
+  const POLL_INTERVAL_MS = 2_000;
+  const STABILITY_CHECK_MS = 1_500;
+  const HEARTBEAT_INTERVAL_MS = 15_000;
+
+  // Print reference summary (clean, single block)
+  if (productRefsAbs.length > 0 || logoFileAbs || logoPositionRefsAbs.length > 0) {
+    console.log("→ References:");
+    if (productRefsAbs.length > 0) {
+      console.log(`    product: ${productRefsAbs.map((p) => path.basename(p)).join(", ")}`);
     }
-  } catch (err) {
-    console.error(`\n❌ Codex invocation failed: ${err.message}`);
-    console.error("   Switch to API mode if this persists: imagegen init");
+    if (logoFileAbs) {
+      console.log(`    logo:    ${path.basename(logoFileAbs)}`);
+    }
+    if (logoPositionRefsAbs.length > 0) {
+      console.log(`    position refs: ${logoPositionRefsAbs.map((p) => path.basename(p)).join(", ")}`);
+    }
+  }
+  console.log("→ Generating image (free-quota mode)...");
+
+  const codexProc = spawn("codex", ["exec"], {
+    shell: true,
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+  codexProc.stdin.write(codexRequest);
+  codexProc.stdin.end();
+
+  // Silently discard codex's verbose output (unless verbose flag set)
+  codexProc.stdout.on("data", (chunk) => {
+    if (verbose) process.stdout.write(chunk);
+  });
+  codexProc.stderr.on("data", (chunk) => {
+    if (verbose) process.stderr.write(chunk);
+  });
+
+  const startTime = Date.now();
+  let detectedSize = 0;
+  let firstSeenAt = 0;
+  let earlyExitTriggered = false;
+
+  // Heartbeat — keep user informed without spamming
+  const heartbeatTimer = setInterval(() => {
+    if (earlyExitTriggered) return;
+    const elapsedMin = ((Date.now() - startTime) / 60000).toFixed(1);
+    process.stdout.write(`  ⏳ still working (${elapsedMin} min elapsed)\n`);
+  }, HEARTBEAT_INTERVAL_MS);
+
+  // Poll for the output file
+  const pollTimer = setInterval(async () => {
+    if (earlyExitTriggered) return;
+    try {
+      const stat = await fs.stat(outputPath);
+      if (stat.size < 1024) return;
+      if (firstSeenAt === 0) {
+        firstSeenAt = Date.now();
+        detectedSize = stat.size;
+        return;
+      }
+      if (Date.now() - firstSeenAt >= STABILITY_CHECK_MS && stat.size === detectedSize) {
+        earlyExitTriggered = true;
+        clearInterval(pollTimer);
+        clearInterval(heartbeatTimer);
+        codexProc.kill("SIGTERM");
+        setTimeout(() => { try { codexProc.kill("SIGKILL"); } catch {} }, 3000);
+      } else {
+        detectedSize = stat.size;
+      }
+    } catch {
+      // not yet
+    }
+  }, POLL_INTERVAL_MS);
+
+  const hardTimer = setTimeout(() => {
+    if (!earlyExitTriggered) {
+      clearInterval(heartbeatTimer);
+      console.error(`\n❌ Hard timeout (${HARD_TIMEOUT_MS / 1000}s). Killing codex.`);
+      try { codexProc.kill("SIGKILL"); } catch {}
+    }
+  }, HARD_TIMEOUT_MS);
+
+  await new Promise((resolve) => {
+    codexProc.on("close", () => {
+      clearInterval(pollTimer);
+      clearInterval(heartbeatTimer);
+      clearTimeout(hardTimer);
+      resolve();
+    });
+    codexProc.on("error", (err) => {
+      clearInterval(pollTimer);
+      clearInterval(heartbeatTimer);
+      clearTimeout(hardTimer);
+      console.error(`\n❌ Codex spawn error: ${err.message}`);
+      resolve();
+    });
+  });
+
+  try {
+    const stats = await fs.stat(outputPath);
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(0);
+    console.log(`✓ Image saved: ${outputPath} (${(stats.size / 1024).toFixed(0)} KB, ${elapsed}s)`);
+    if (!verbose) {
+      console.log(`  (re-run with IMAGEGEN_VERBOSE=1 to see codex's internal output)`);
+    }
+  } catch {
+    console.error(`\n⚠  Image not found at ${outputPath} after codex exit.`);
+    console.error("   Try API mode for guaranteed reference fidelity: imagegen init");
     process.exit(1);
   }
   process.exit(0);

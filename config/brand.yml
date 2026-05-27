@@ -75,7 +75,10 @@ channels:
       Blendy:
         dir: "Blendy"
         aliases: [coffee, latte, mocha, instant coffee, 咖啡]
-        logo_references: ["17 Jun Blendy.png", "26 Jun Blendy.png", "8 Jun Blendy.png"]
+        # Note: logo_references resolve under assets/Logo_Position_Size_Reference/ by default,
+        # OR can be absolute/relative paths starting with "assets/" to point elsewhere.
+        logo_references:
+          - "assets/Dry Food/Blendy/22 May Post.png"   # real past post in product folder
       HONDASHI:
         dir: "HONDASHI"
         aliases: [hondashi, hon-dashi, dashi, bonito stock, 鲣鱼粉, 木鱼花]

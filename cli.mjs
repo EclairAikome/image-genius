@@ -50,9 +50,9 @@ function runScript(scriptPath, args = []) {
 
 async function cmdGenerate(userInput, { promptOnly = false } = {}) {
   const prefs = await ensureInitialized();
+  const verbose = process.env.IMAGEGEN_VERBOSE === "1";
 
-  console.log(`\n→ Input: "${userInput}"`);
-  console.log(`→ Provider: ${prefs.prompt_model?.provider} (${prefs.prompt_model?.model || "default"})`);
+  console.log(`\n→ Generating prompt (${prefs.prompt_model?.provider}${prefs.prompt_model?.model ? "/" + prefs.prompt_model.model : ""})...`);
 
   const result = await generatePrompt(userInput);
 
@@ -60,28 +60,29 @@ async function cmdGenerate(userInput, { promptOnly = false } = {}) {
     if (result.needsUserInput) {
       console.log(`\n${result.needsUserInput.message}`);
       console.log(`Options: ${result.needsUserInput.options.join(", ")}`);
-      console.log(`\nRe-run with explicit channel/SKU, e.g.:`);
-      console.log(`  node cli.mjs "${userInput}" --channel <name> --sku <name>`);
+      console.log(`\nRe-run with explicit channel/SKU.`);
       return;
     }
     console.error(`\n❌ ${result.error}`);
     return;
   }
 
-  console.log(`\n✓ Channel: ${result.metadata.channel} | SKU: ${result.metadata.sku} | Type: ${result.metadata.content_type}`);
+  const wordCount = result.prompt.split(/\s+/).length;
+  console.log(`✓ Prompt ready: ${wordCount} words (${result.prompt.length} chars)`);
+  console.log(`  channel: ${result.metadata.channel} | sku: ${result.metadata.sku} | type: ${result.metadata.content_type}`);
 
   const draftPath = await saveDraft(result.prompt, result.metadata);
-  console.log(`✓ Draft saved: ${draftPath}`);
+  console.log(`  draft: ${draftPath}`);
 
-  console.log(`\n────────────── GENERATED PROMPT ──────────────\n`);
-  console.log(result.prompt);
-  console.log(`\n──────────────────────────────────────────────`);
-  console.log(`Length: ${result.prompt.length} chars / ~${result.prompt.split(/\s+/).length} words\n`);
+  if (verbose || promptOnly) {
+    console.log(`\n────────────── GENERATED PROMPT ──────────────\n`);
+    console.log(result.prompt);
+    console.log(`\n──────────────────────────────────────────────\n`);
+  }
 
   if (promptOnly) return;
 
   const imageMode = prefs.image_generation?.mode || "api";
-  console.log(`→ Generating image (${imageMode} mode)...\n`);
   const args = ["--prompt-file", draftPath];
   if (imageMode === "manual") args.push("--mode", "manual");
   await runScript("scripts/generate-image.mjs", args);

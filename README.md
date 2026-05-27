@@ -59,6 +59,20 @@ Every aspect of the image is explicitly described, leaving nothing to chance:
 
 The `modes/_shared.md` ruleset enforces this discipline — the LLM cannot hand-wave abstractly.
 
+### Mandatory visual inspection of past posts
+
+For brand-consistent logo placement, vague text instructions are not enough. Image Genius forces the prompt-generation LLM to actually **open and visually inspect** past Instagram posts for each SKU before writing the prompt:
+
+1. List past posts in `brand.yml` under `channels.<channel>.skus.<sku>.logo_references`
+2. The meta-prompt now contains a `MANDATORY PRE-WORK` block that instructs the LLM to use its Read tool to view each reference and extract:
+   - Exact corner (top-left/top-right/bottom-left/bottom-right)
+   - Logo width as % of canvas
+   - Padding from edges as %
+   - Tagline arrangement (stacked/beside/below)
+3. The LLM then bakes these precise measurements directly into the image prompt — `"width 14%, padding 2.5% top, 2% right"` instead of `"top-right corner"`
+
+This produces logo placement that matches the brand's established standard across every SKU automatically.
+
 ### Multi-model choice — your subscription, your pick
 
 Choose your prompt-generation engine at setup:
@@ -231,6 +245,17 @@ function imagegen {
 | `imagegen config` | Show current configuration |
 
 REPL slash-commands (when inside `ig>`): `/regenerate`, `/refine <path>`, `/prompt <desc>`, `/config`, `/init`, `/exit`.
+
+### Debug / verbose mode
+
+By default the CLI shows only clean status milestones (prompt-ready, image-ready). To see the prompt-generation LLM's full thinking and codex's internal tool calls during image generation:
+
+```powershell
+$env:IMAGEGEN_VERBOSE = "1"
+imagegen "your description"
+```
+
+Useful when debugging why a reference image wasn't picked up, or why the logo landed in the wrong spot.
 
 ---
 

@@ -1,7 +1,7 @@
 {
   "initialized": true,
   "prompt_model": {
-    "provider": "codex",
+    "provider": "claude",
     "model": null
   },
   "image_generation": {
