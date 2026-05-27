@@ -22,11 +22,13 @@ defaults:
 
 # === Shared Asset Paths ===
 assets:
-  ajinomoto_logo: "assets/Ajinomoto_Group_Global_Brand_logo.jpg"
+  ajinomoto_logo: "assets/Ajinomoto_Group_Global_Brand_logo.png"
   aminovital_logo:
-    # Single navy variant. The image model recolours to white when the generated
-    # scene's background is dark, per the prompt's logo section.
-    dark: "assets/AV Logo/AV LOGO.PNG"
+    # Two variants — the skill selects based on the generated scene's tone.
+    # navy: navy-coloured glyphs for use on LIGHT backgrounds
+    # white: white glyphs for use on DARK backgrounds
+    navy: "assets/AV Logo/AV LOGO.PNG"
+    white: "assets/AV Logo/AV LOGO White.png"
   logo_position_reference_dir: "assets/Logo_Position_Size_Reference"
 
 # === Channels ===
@@ -56,7 +58,7 @@ channels:
       # Default pipeline: this file is passed as a REFERENCE IMAGE to openai.images.edit;
       # the prompt embeds a placement description derived from the SKU's logo_references.
       # position/width/opacity below are ONLY used by the manual `add-logo.mjs` fallback.
-      file: "assets/Ajinomoto_Group_Global_Brand_logo.jpg"
+      file: "assets/Ajinomoto_Group_Global_Brand_logo.png"
       position: { x: 50, y: 50 }
       width: 160
       opacity: 1.0
@@ -115,7 +117,7 @@ channels:
     logo:
       # Same pattern as dryfoods — reference-image in default pipeline; position/width
       # used only by manual `add-logo.mjs`.
-      file: "assets/Ajinomoto_Group_Global_Brand_logo.jpg"
+      file: "assets/Ajinomoto_Group_Global_Brand_logo.png"
       position: { x: 50, y: 50 }
       width: 160
       opacity: 1.0
@@ -146,12 +148,12 @@ channels:
         - navy blue and gold color accents
         - clean modern aesthetic
         - athletic/active lifestyle context
-    # Logo: top-left corner. The model auto-recolours (white on dark, navy on light)
-    # based on the generated scene tone. No Ajinomoto logo on AminoVITAL content.
+    # Logo: position/size derived from past Instagram posts in `logo_references` below.
+    # The skill (or CLI prompt engine) inspects these reference images visually to
+    # derive a one-sentence placement description that goes into the image prompt.
+    # No Ajinomoto logo on AminoVITAL content.
+    logo_references: []        # TBD — drop past AV posts into assets/AV_Logo_Position_Reference/ and list them here
     logo:
-      # Default pipeline: this file is passed as a REFERENCE IMAGE to openai.images.edit;
-      # the prompt instructs the model to render it top-left and recolour as needed.
-      # position/width/opacity below are ONLY used by the manual `add-logo.mjs` fallback.
       file: "assets/AV Logo/AV LOGO.PNG"
       position: { x: 50, y: 50 }
       width: 180

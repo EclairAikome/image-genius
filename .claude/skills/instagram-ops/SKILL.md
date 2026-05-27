@@ -32,8 +32,8 @@ On first invocation, read `config/user-prefs.json`. If `initialized` is false:
    - OpenAI (uses OpenAI API key — pay per use)
 
 2. **Ask: Image generation mode**
-   - API mode (automated, calls OpenAI API, costs per image)
-   - Manual mode (generates prompt → copies to clipboard → user pastes into ChatGPT Plus for free generation)
+   - Free quota (uses your OpenAI subscription via Codex CLI)
+   - API paid (uses OPENAI_API_KEY from .env)
 
 3. **If API mode: Ask image model preference**
    - gpt-image-2 (recommended — best quality)

@@ -1,11 +1,31 @@
 import fs from "fs/promises";
 import path from "path";
 import yaml from "js-yaml";
+import { detectInstalledClis } from "../lib/cli-runner.mjs";
 
 const checks = [];
 const ok = (name) => checks.push({ name, status: "OK" });
 const warn = (name, msg) => checks.push({ name, status: "WARN", msg });
 const fail = (name, msg) => checks.push({ name, status: "FAIL", msg });
+
+// AI CLIs
+const clis = await detectInstalledClis();
+if (clis.claude) ok(`Claude CLI installed (${clis.claudeVersion})`);
+else warn("Claude CLI not installed", "Install: npm install -g @anthropic-ai/claude-code");
+if (clis.codex) ok(`Codex CLI installed (${clis.codexVersion})`);
+else warn("Codex CLI not installed", "Install: npm install -g @openai/codex");
+
+// User preferences
+try {
+  const prefs = JSON.parse(await fs.readFile("config/user-prefs.json", "utf-8"));
+  if (prefs.initialized) {
+    ok(`user-prefs.json — initialized (prompt: ${prefs.prompt_model?.provider}, image: ${prefs.image_generation?.mode})`);
+  } else {
+    warn("user-prefs.json — not initialized", "Run: node cli.mjs init");
+  }
+} catch {
+  warn("user-prefs.json missing", "Run: node cli.mjs init");
+}
 
 // .env
 try {
@@ -70,13 +90,23 @@ if (ajiLogo) {
   }
 }
 
-const avDark = config?.assets?.aminovital_logo?.dark;
-if (avDark) {
+const avNavy = config?.assets?.aminovital_logo?.navy;
+if (avNavy) {
   try {
-    await fs.access(avDark);
-    ok(`AminoVITAL logo (dark) present (${avDark})`);
+    await fs.access(avNavy);
+    ok(`AminoVITAL logo (navy) present (${avNavy})`);
   } catch {
-    fail(`AminoVITAL dark logo missing at ${avDark}`, "Place the navy AV logo at the configured path");
+    fail(`AminoVITAL navy logo missing at ${avNavy}`, "Place the navy AV logo at the configured path");
+  }
+}
+
+const avWhite = config?.assets?.aminovital_logo?.white;
+if (avWhite) {
+  try {
+    await fs.access(avWhite);
+    ok(`AminoVITAL logo (white) present (${avWhite})`);
+  } catch {
+    fail(`AminoVITAL white logo missing at ${avWhite}`, "Place the white AV logo at the configured path");
   }
 }
 

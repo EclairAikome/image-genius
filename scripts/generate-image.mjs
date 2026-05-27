@@ -65,7 +65,87 @@ const quality = settingsOverride.quality || defaults.image?.quality || "high";
 const outputDir = defaults.output?.directory || "output";
 const format = defaults.output?.format || "png";
 
-// ─── Manual Mode ───
+// ─── Helper: build output filename ───
+function buildOutputPath() {
+  const date = new Date().toISOString().split("T")[0];
+  const prefix = channel ? `${channel}-` : "";
+  const slug = (description || "image")
+    .replace(/[^\w\s一-鿿]/g, "")
+    .trim()
+    .split(/\s+/)
+    .slice(0, 3)
+    .join("-")
+    .toLowerCase()
+    .substring(0, 30) || "image";
+  return { date, prefix, slug };
+}
+
+// ─── Free-Quota Mode (delegates image generation to codex CLI) ───
+if (imageMode === "free-quota") {
+  console.log("\n→ Free-quota mode — delegating image generation to codex CLI...");
+  console.log(`Channel: ${channel || "(none)"}`);
+  console.log(`Prompt length: ${prompt.length} chars / ~${prompt.split(/\s+/).length} words`);
+
+  await fs.mkdir(outputDir, { recursive: true });
+  const { date, prefix, slug } = buildOutputPath();
+  const existingFiles = await fs.readdir(outputDir).catch(() => []);
+  const todayFiles = existingFiles.filter((f) => f.startsWith(date) && f.includes(slug));
+  const index = todayFiles.length + 1;
+  const filename = `${date}-${prefix}${slug}-${String(index).padStart(2, "0")}.${format}`;
+  const outputPath = path.resolve(outputDir, filename);
+
+  const refsText = refs.length > 0
+    ? `\nUse these reference images (preserve product packaging from #1, embed logo from the last one as specified in the prompt):\n${refs.map((p, i) => `  ${i + 1}. ${path.resolve(p)}`).join("\n")}\n`
+    : "";
+
+  const codexRequest = `You have access to OpenAI's gpt-image-2 image generation API through your authenticated session. Please generate an image using this exact prompt:
+
+==================== IMAGE PROMPT START ====================
+${prompt}
+==================== IMAGE PROMPT END ======================
+${refsText}
+Image specifications:
+  - Model: ${model}
+  - Size: ${size}
+  - Quality: ${quality}
+  - Output format: ${format}
+
+Save the generated image to this absolute path:
+  ${outputPath}
+
+CRITICAL:
+  - Do NOT modify or summarize the image prompt
+  - Use the full prompt as-is when calling the image API
+  - Save the binary image file to the exact path above
+  - After saving, output ONLY the absolute file path on the last line`;
+
+  console.log("→ Invoking codex (this may take 2-5 min for full pipeline: planning + image_gen tool + file save)...\n");
+  try {
+    const { runCodex } = await import("../lib/cli-runner.mjs");
+    const result = await runCodex(codexRequest, { forImageGen: true });
+    console.log("--- Codex output ---");
+    console.log(result.substring(0, 500) + (result.length > 500 ? "...(truncated)" : ""));
+    console.log("--- End codex output ---\n");
+
+    try {
+      const stats = await fs.stat(outputPath);
+      console.log(`✓ Image saved: ${outputPath}`);
+      console.log(`  Size: ${(stats.size / 1024).toFixed(0)} KB`);
+    } catch {
+      console.error(`\n⚠  Codex finished but image not found at ${outputPath}`);
+      console.error("   Codex CLI may not have direct image generation access.");
+      console.error("   Try: imagegen init  →  switch to 'API paid' mode.");
+      process.exit(1);
+    }
+  } catch (err) {
+    console.error(`\n❌ Codex invocation failed: ${err.message}`);
+    console.error("   Switch to API mode if this persists: imagegen init");
+    process.exit(1);
+  }
+  process.exit(0);
+}
+
+// ─── Manual Mode (legacy — clipboard + ChatGPT website) ───
 if (imageMode === "manual") {
   console.log("\n╔══════════════════════════════════════════════════════════════╗");
   console.log("║                   MANUAL MODE — ChatGPT Plus               ║");

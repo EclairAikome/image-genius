@@ -1,18 +1,25 @@
 {
-  "initialized": false,
+  "initialized": true,
   "prompt_model": {
-    "provider": null,
+    "provider": "codex",
     "model": null
   },
   "image_generation": {
-    "mode": null,
+    "mode": "free-quota",
     "model": "gpt-image-2"
   },
   "notes": {
-    "provider_options": ["claude", "openai"],
-    "claude_models": ["claude-sonnet-4-20250514", "claude-opus-4-20250514"],
-    "openai_models": ["gpt-4.1", "o4-mini", "gpt-4.1-mini"],
-    "image_mode_options": ["api", "manual"],
-    "image_models": ["gpt-image-2", "gpt-image-1"]
+    "provider_options": [
+      "claude",
+      "codex"
+    ],
+    "image_mode_options": [
+      "free-quota",
+      "api"
+    ],
+    "image_models": [
+      "gpt-image-2",
+      "gpt-image-1"
+    ]
   }
 }
