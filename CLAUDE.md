@@ -2,6 +2,14 @@
 
 AI-powered Instagram content creation workflow built as a Claude Code skill for **Ajinomoto Singapore**.
 
+> **MANDATORY — bound to the image-gen script:** Before running, editing, or
+> reasoning about `scripts/generate-image.mjs` (any request to generate /
+> regenerate / refine an Instagram / AminoVITAL / Ajinomoto image), you MUST first
+> read and follow `scripts/SKILL.md` (the `image-gen-rules` skill). It is the
+> source of truth for workflow, style, HSA compliance, and the codex/gpt-image
+> pitfalls (auto-logo, gravity, picture-in-picture nesting, aspect-ratio/crop/stretch).
+> Do not run the script without applying those rules.
+
 ## Architecture
 
 ```
