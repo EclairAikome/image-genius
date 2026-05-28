@@ -110,7 +110,7 @@ if (imageMode === "free-quota") {
   if (productRefsAbs.length > 0 || logoFileAbs || logoPositionRefsAbs.length > 0) {
     referenceBlock = `\n==================== REFERENCE IMAGES (MANDATORY) ====================\n`;
     if (productRefsAbs.length > 0) {
-      referenceBlock += `\n[A] PRODUCT PHOTO REFERENCE — Pass this file directly to the image_gen tool as an input/reference image. The generated image MUST preserve every text character, color, design element, and packaging detail from this photo:\n${productRefsAbs.map((p) => `    ${p}`).join("\n")}\n`;
+      referenceBlock += `\n[A] PRODUCT PHOTO REFERENCE — Pass this file to image_gen as the PRIMARY input image in IMAGE-TO-IMAGE / EDIT mode (not text-to-image). The product packaging in the output MUST be taken from THIS original photo, pixel-faithful: every text character, number, logo, color, and layout reproduced exactly. Do NOT redraw, re-typeset, re-letter, paraphrase, translate, or rearrange any text or graphic on the package — the packaging region must come from the original photo, not be regenerated:\n${productRefsAbs.map((p) => `    ${p}`).join("\n")}\n`;
     }
     if (logoFileAbs) {
       referenceBlock += `\n[B] BRAND LOGO FILE — Pass this file as a second input/reference to the image_gen tool. The generated image MUST contain this exact logo (preserving its glyph shapes and color) at the position specified in the prompt:\n    ${logoFileAbs}\n`;
@@ -260,6 +260,21 @@ CRITICAL RULES:
   });
 
   try {
+    await fs.stat(outputPath);
+    // Enforce EXACT output dimensions — codex/image_gen ignores the requested size,
+    // so normalize the saved file to the target size (center-crop, no distortion).
+    const [tw, th] = size.split("x").map(Number);
+    if (tw && th) {
+      const sharp = (await import("sharp")).default;
+      const meta = await sharp(outputPath).metadata();
+      if (meta.width !== tw || meta.height !== th) {
+        const resized = await sharp(outputPath)
+          .resize(tw, th, { fit: "cover", position: "centre" })
+          .toBuffer();
+        await fs.writeFile(outputPath, resized);
+        console.log(`  ↳ normalized size ${meta.width}x${meta.height} → ${tw}x${th}`);
+      }
+    }
     const stats = await fs.stat(outputPath);
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(0);
     console.log(`✓ Image saved: ${outputPath} (${(stats.size / 1024).toFixed(0)} KB, ${elapsed}s)`);
@@ -343,10 +358,11 @@ try {
     const imageFiles = await Promise.all(
       refs.map(async (p) => toFile(createReadStream(p), path.basename(p), { type: mimeOf(p) }))
     );
+    const editPrompt = `${prompt}\n\nIMAGE-TO-IMAGE REQUIREMENT: the supplied reference image IS the product. Reproduce its packaging exactly from the original photo — do NOT redraw, re-typeset, re-letter, translate, paraphrase, or rearrange any text or graphic on the package; the packaging region must be taken from the original, not regenerated.`;
     const response = await openai.images.edit({
       model,
       image: imageFiles.length === 1 ? imageFiles[0] : imageFiles,
-      prompt,
+      prompt: editPrompt,
       n: 1,
       size,
       quality,
