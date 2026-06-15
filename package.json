@@ -1,6 +1,6 @@
 {
   "name": "instagram-ops",
-  "version": "2.0.0",
+  "version": "2.2.0",
   "description": "AI-powered Instagram content creation workflow for Claude Code",
   "type": "module",
   "scripts": {

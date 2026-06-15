@@ -3,7 +3,7 @@
 > **AI-powered Instagram content generation that stays on brand.**
 > Lean, intent-first prompts built for GPT Image 2 &middot; Standalone PowerShell CLI &middot; Claude or GPT for prompt writing &middot; Free quota via ChatGPT Plus subscription
 
-[![Version](https://img.shields.io/badge/version-2.1.0-blue)](https://github.com/EclairAikome/image-genius/releases)
+[![Version](https://img.shields.io/badge/version-2.2.0-blue)](https://github.com/EclairAikome/image-genius/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow)](https://opensource.org/licenses/MIT)
 [![Node](https://img.shields.io/badge/node-%3E%3D18-brightgreen)](https://nodejs.org)
 
