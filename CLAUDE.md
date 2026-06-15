@@ -15,9 +15,9 @@ instagram-ops/
 │   ├── _shared.md            ← Cross-cutting rules (product refs, logo, guardrails)
 │   └── generate.md           ← Prompt-engineering details
 ├── templates/
-│   ├── food.md               ← Food photography prompt template (13 sections, 600-1200 words)
-│   ├── lifestyle.md          ← Lifestyle photography prompt template
-│   └── product.md            ← Product photography prompt template
+│   ├── food.md               ← Food photography template (7-block, 120-250 words)
+│   ├── lifestyle.md          ← Lifestyle photography template (7-block)
+│   └── product.md            ← Product photography template (7-block)
 ├── scripts/
 │   ├── generate-image.mjs    ← OpenAI image generate / edit (supports reference images + manual mode)
 │   ├── add-logo.mjs          ← Logo overlay via sharp (CLI x/y/width overrides)
@@ -48,31 +48,33 @@ instagram-ops/
    - **dryfoods / frozen** → reads the SKU's reference posts in `Logo_Position_Size_Reference/` and derives a plain-English placement description
    - **aminovital** → standard top-left, with auto-recolour rule (white on dark, navy on light)
 7. Classifies content type (food / lifestyle / product) and loads matching template
-8. Generates a structured English prompt (600-1200 words) with hex codes, grid coordinates, lighting rigs, and material maps
+8. Writes a lean, intent-first English prompt (120-250 words) — the product photo is passed as reference #1, so the prompt preserves it rather than re-describing the label
 9. **API mode**: Calls OpenAI `images.edit` with references → saves final image
    **Manual mode**: Copies prompt to clipboard → user generates in ChatGPT Plus (free)
-10. Returns the path
+10. **Visually verifies** the saved image (packaging → logo → HSA compliance → text → composition); iterates one dimension if a check fails
+11. Returns the path
 
-## Refinement Workflow (reverse-prompt)
+## Refinement Workflow (edit endpoint)
 
-When the user wants to make targeted changes to a generated image:
+When the user wants a targeted change to an image they already like:
 
-1. `refine <image-path>` → analyzes the image with vision AI
-2. Produces an 800-1200 word reproduction prompt describing every detail
-3. User specifies what to change → skill makes surgical edits to the prompt
-4. Regenerate → result is very close to original except for targeted changes
+1. `refine <image-path> "<what to change>"`
+2. The skill edits the **actual image** via gpt-image-2's edit endpoint with a
+   short "change ONLY X / preserve Y exactly" prompt
+3. Everything not named (composition, packaging, logo, lighting) stays put
 
-This solves the "regeneration drift" problem: instead of describing changes on top of a previous generation, we establish a ground-truth prompt from the actual image and make minimal edits.
+This avoids regeneration drift without an image→prose→image round-trip.
+`reverse-prompt.mjs` remains as a fallback for reproducing an image not generated here.
 
 ## Key Design Decisions
 
 - **One-shot generation, no post-processing**: the model handles logo compositing natively
-- **Reference images are mandatory**: product packaging stays accurate
-- **Ultra-detailed prompts (600-1200 words)**: longer prompts = more stable, reproducible results with gpt-image-2
-- **Stability through specificity**: hex codes, clock positions, frame percentages, material maps — leaves nothing to random interpretation
+- **Reference images are mandatory**: product packaging stays accurate — and the prompt preserves the reference instead of re-describing it
+- **Lean, intent-first prompts (120-250 words)**: gpt-image-2 follows tight instructional prompts faithfully; over-long prompts dilute the load-bearing instructions. No magic words.
+- **Specificity where it matters**: hex codes for brand/accent colors, numeric logo placement — not every incidental dimension
+- **Visual self-verification**: the agent opens the result and checks it before presenting — never "here's an image, hope it's right"
 - **Dual generation mode**: API (automated) or Manual (ChatGPT Plus subscription, free)
-- **Reverse-prompt refinement**: surgical edits instead of full regeneration for targeted changes
-- **Fresh regeneration only**: never edit a generated image; always regenerate
+- **Edit-endpoint refinement**: surgical pixel-level edits for targeted changes
 - **English prompts**: image models perform best with English prompts
 
 ## Setup
@@ -90,7 +92,7 @@ This solves the "regeneration drift" problem: instead of describing changes on t
 /instagram-ops AminoVITAL Gold sachet on a runner's bench post-workout
 /instagram-ops Blendy iced latte in a sunny morning setting
 /instagram-ops regenerate
-/instagram-ops refine output/2026-05-26-dryfoods-mayo-toast-01.png
+/instagram-ops refine output/2026-05-26-dryfoods-mayo-toast-01.png "make the background warmer"
 /instagram-ops add-logo output/2026-05-26-dryfoods-mayo-toast-01.png
 /instagram-ops prompt-only 精致的 HONDASHI 高汤摆盘
 /instagram-ops init

@@ -18,7 +18,7 @@ Analyze the user's input and route to the appropriate mode:
 | `init` or `setup` | Run initialization wizard |
 | `prompt-only <description>` | Generate prompt only, do not generate image |
 | `regenerate` | Re-run generation with the LAST description from `drafts/last-prompt.json`, fresh start |
-| `refine <image-path>` | Reverse-engineer a detailed prompt from an existing image for targeted editing |
+| `refine <image-path> <change>` | Edit an existing image via the edit endpoint — change ONLY what's named, preserve the rest |
 | `add-logo <path>` | **Manual** logo overlay via sharp onto an existing image |
 | `config` | Show current brand config and user preferences summary |
 | Any text description | **Default: full generation pipeline** |
@@ -107,23 +107,30 @@ Classify into one of:
 - **lifestyle** → `templates/lifestyle.md` (aminovital lifestyle scenes)
 - **product** → `templates/product.md` (product hero shots across all channels)
 
-### Step 6 — Generate Structured Prompt
-Follow the loaded template structure **exactly**. Fill EVERY section based on:
+### Step 6 — Write the Prompt (lean, intent-first)
+Follow the loaded template's **7-block order** (Intent → Scene → Subject → Key
+details → Text → Style → Constraints). This targets gpt-image-2, which follows
+tight instructional prompts faithfully and is *hurt* by the old magic-word style.
+Base the prompt on:
 - The user's description (translate to English if needed)
 - Channel-specific style, colours, and mood from brand config
-- The actual SKU — name it specifically, instruct model to preserve packaging from reference
-- Template-specific defaults and constraints
+- The actual SKU — name it specifically, and **preserve packaging from reference #1
+  rather than re-describing the label** (the photo is passed to the API)
 
-**Mandatory logo section** (added after main scene, before negative prompt):
-> "Render the brand logo from the SECOND reference image at <placement description>. Preserve the logo's exact glyph shapes; <colour rule>; do not distort, skew, or add extra elements."
+**Mandatory logo clause** (before the constraints clause):
+> "Place the brand logo from the SECOND reference image in the <corner>, ~<N>% of
+> canvas width, ~<N>% padding; <colour rule>; preserve its glyph shapes, do not
+> distort or skew." (State the corner / size / padding numerically.)
 
-**CRITICAL prompt length rules:**
-- **Minimum 600 words, target 800-1000 words, maximum 1200 words**
-- Fill every template section thoroughly — no shortcuts
-- Use hex codes for ALL colors mentioned
-- Use precise spatial descriptors (clock positions, frame percentages, grid coordinates)
-- Use measurable quantities (distances, sizes, ratios)
-- The more specific the prompt, the more reproducible the output
+**CRITICAL prompt rules:**
+- **Target 120–250 words, hard cap ~300.** Signal density over length — cut any
+  clause that wouldn't change the output. Do NOT pad to a word count.
+- **Open with intent** ("Create a … photograph of …"), never "Professional commercial …".
+- **No magic words** anywhere: no 4K / 8K / ultra-detailed / masterpiece /
+  300 DPI / "professional color grading" / "no AI generation tells".
+- Hex codes ONLY for brand/accent colors and the logo — not every prop.
+- ONE light direction + ONE color temperature. ONE style anchor.
+- Negative clause: short, real exclusions only.
 
 ### Step 7 — Save Draft
 Save to `drafts/last-prompt.json`:
@@ -133,7 +140,7 @@ Save to `drafts/last-prompt.json`:
   "channel": "<dryfoods|frozen|aminovital>",
   "sku": "<sku id>",
   "content_type": "<food|lifestyle|product>",
-  "prompt": "<generated English prompt — 600-1200 words>",
+  "prompt": "<generated English prompt — 120-250 words>",
   "reference_images": ["<product photo path>", "<logo file path>"],
   "timestamp": "<ISO 8601>",
   "settings": {
@@ -162,40 +169,54 @@ Script displays the prompt, copies it to clipboard, and instructs the user to pa
 
 After the user generates and saves the image, they tell the skill the filename. The skill then proceeds to Step 9.
 
-### Step 9 — Present Result
+### Step 9 — Verify Visually (MANDATORY before presenting)
+Open the saved image and judge it against the brief BEFORE reporting success.
+Check, in order:
+1. **Packaging** — every character/colour on the label intact and undistorted?
+2. **Logo** — right corner, right size, right colour, not skewed?
+3. **Compliance** (AminoVITAL only) — is any on-image text an HSA-prohibited claim?
+4. **Text** — does each quoted string render exactly, with no extra characters?
+5. **Composition** — subject placement and negative space as specified?
+
+If any check fails, **change ONE dimension** and regenerate (or refine via the
+edit endpoint). Never ship an unseen result and ask "does this look right?".
+
+### Step 10 — Present Result
 Show the user:
 1. **Channel & SKU**: which channel and product
 2. **Prompt**: the full generated prompt (in a collapsible code block)
 3. **Prompt stats**: word count, character count
 4. **Image path**: path to the generated image
-5. **Next steps**:
-   - `regenerate` — completely fresh generation from same description
-   - `refine <image-path>` — reverse-engineer prompt for targeted editing
+5. **Verification**: one line on what you checked and the result
+6. **Next steps**:
+   - `refine <image-path> "<change>"` — targeted edit via the edit endpoint
+   - `regenerate` — completely fresh take from same description
    - Or describe a new image
 
-## Refine Mode (Reverse-Prompt)
+## Refine Mode (edit endpoint — change ONLY X / preserve Y)
 
-When the user says `refine <image-path>`:
+When the user says `refine <image-path> "<what to change>"`:
 
-1. Run the reverse-prompt engine:
+1. The CLI builds a short edit prompt ("Edit the input image: change ONLY <X>.
+   Preserve exactly: composition, packaging text, logo, lighting, colour grade…")
+   and edits the **actual image** via gpt-image-2's edit endpoint:
    ```bash
-   node scripts/reverse-prompt.mjs --input <image-path>
+   node scripts/generate-image.mjs --edit-image <image-path> \
+     --prompt "Edit the input image: change ONLY <X>. Preserve exactly: …"
    ```
-   This analyzes the image and generates an 800-1200 word reproduction prompt.
+   (Inside the CLI this is wired through `imagegen refine <path> "<change>"`.)
 
-2. Display the reversed prompt to the user.
+2. Everything not named in the change stays put — composition, packaging text,
+   logo position, lighting — because the edit operates on the real pixels.
 
-3. Ask: "What would you like to change?"
+3. Verify the result visually (Step 9) before presenting.
 
-4. The user describes their desired changes (e.g., "make the text say 'POWER UP' instead of 'ENERGY'", "make the gold halo brighter").
+**Why this works:** gpt-image-2 edits images precisely. Editing the actual pixels
+with a "change ONLY X / preserve Y" instruction beats regenerating from scratch —
+no image→prose→image round-trip, no drift in the parts you wanted kept.
 
-5. Apply ONLY the requested changes to the reversed prompt, keeping everything else identical.
-
-6. Save the modified prompt to `drafts/last-prompt.json` (with the original image noted as `source_image`).
-
-7. Generate with the modified prompt → the result should be very close to the original except for the targeted changes.
-
-**Why this works:** Instead of describing a change on top of a previous generation (which compounds randomness), we first establish a detailed "ground truth" prompt from the actual image, then make surgical edits. The resulting prompt has the same level of specificity as the original generation's full context, so the model has minimal room for random drift.
+`reverse-prompt.mjs` remains as a fallback for reproducing an image NOT generated
+here (when you have no original prompt to edit from).
 
 ## Regenerate Mode
 
@@ -220,15 +241,15 @@ Channels:
 Commands:
   <description>              Generate image from description (any language)
   prompt-only <description>  Generate prompt only, no image
-  regenerate                 Fresh generation with last description
-  refine <image-path>        Reverse-engineer prompt for targeted editing
-  add-logo <path>            Manual logo overlay on existing image
-  init / setup               (Re)configure model and mode preferences
-  config                     Show current configuration
+  regenerate                  Fresh generation with last description
+  refine <image-path> <change> Edit an existing image (change ONLY X, preserve rest)
+  add-logo <path>             Manual logo overlay on existing image
+  init / setup                (Re)configure model and mode preferences
+  config                      Show current configuration
 
 Examples:
   一碗热腾腾的味之素冷冻饺子
   Blendy iced latte in a cozy morning scene
   AminoVITAL Gold energy gel, dynamic sports setting
-  refine output/2026-05-26-aminovital-gold-01.png
+  refine output/2026-05-26-aminovital-gold-01.png "make the background navy"
 ```

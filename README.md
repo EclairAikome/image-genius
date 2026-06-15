@@ -1,9 +1,9 @@
 # Image Genius
 
-> **AI-powered Instagram content generation that doesn't drift.**
-> Standalone PowerShell CLI &middot; Claude or GPT for prompt writing &middot; Free quota via ChatGPT Plus subscription
+> **AI-powered Instagram content generation that stays on brand.**
+> Lean, intent-first prompts built for GPT Image 2 &middot; Standalone PowerShell CLI &middot; Claude or GPT for prompt writing &middot; Free quota via ChatGPT Plus subscription
 
-[![Version](https://img.shields.io/badge/version-2.1.0-blue)](https://github.com/EclairAikome/image-genius/releases)
+[![Version](https://img.shields.io/badge/version-2.2.0-blue)](https://github.com/EclairAikome/image-genius/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow)](https://opensource.org/licenses/MIT)
 [![Node](https://img.shields.io/badge/node-%3E%3D18-brightgreen)](https://nodejs.org)
 
@@ -23,55 +23,57 @@ Hand-crafting on-brand Instagram images in Canva takes 1-2 hours per post. The c
 
 ## Highlights
 
-### Long, hyper-detailed prompts built for gpt-image-2
+### Lean, intent-first prompts built for GPT Image 2
 
-Image generation models trade off precision against randomness at every unspecified dimension. The shorter the prompt, the more decisions the model improvises — and the less reproducible the output.
+GPT Image 2 (April 2026) follows tight *instructional* prompts faithfully — but
+it does **not** reward the old "magic word" style, and it loses the thread when a
+prompt runs too long. Pile on 800–1200 words of `ultra-detailed, 4K, masterpiece,
+professional color grading` plus a five-light studio rig and three restatements of
+the palette, and the instructions you actually care about — keep the packaging
+exact, put the logo here, render this compliant text — get buried. The output
+"forgets" them.
 
-Image Genius templates produce **600-1200 word structured prompts** with 13 mandatory sections:
+Image Genius writes the opposite kind of prompt. Each one is a **120–250 word
+art-direction brief** in a fixed 7-block order:
 
-| Section | What it locks down |
+```
+Intent  →  Scene  →  Subject  →  Key details  →  Text  →  Style  →  Constraints
+```
+
+| Principle | What it means |
 |---|---|
-| Camera setup | Focal length, aperture, depth of field, sensor type |
-| Primary subject | Exhaustive description with measurable details |
-| Product packaging | Preserves SKU exactly via reference image |
-| Secondary props | Position, material, color, size relative to subject |
-| Surface & background | Material, distance, blur characteristics |
-| Spatial layout | Rule-of-thirds grid, frame percentages, geometry |
-| Lighting rig | Key/fill/rim/practical lights with clock positions and color temps |
-| Color palette | Every color with hex code AND coverage % |
-| Material & texture map | Reflectivity, finish, special properties per surface |
-| Brand color integration | Channel-specific colors woven into the scene |
-| Atmospheric effects | Bokeh shape, haze density, lens artifacts |
-| Mood & style anchor | Tone + photographic reference |
-| Negative prompt | Explicit exclusions (text, watermarks, faces, AI tells) |
+| **Open with intent** | "Create a premium product hero photograph of …" — the opening selects the model's mode. Never "Professional commercial photography, ultra-detailed…". |
+| **Preserve, don't re-describe** | The real product photo is passed as reference #1. The prompt says "preserve the packaging exactly as in reference #1" instead of cataloguing every label surface — re-describing a reference image just fights it and causes drift. |
+| **Precision where it matters** | Hex codes for brand/accent colors and numeric logo placement (corner, % width, padding) — not for every incidental prop. |
+| **One light, one style** | One key direction + one color temperature; one named style anchor. No multi-light rigs, no stacked styles. |
+| **No magic words** | No `4K / 8K / ultra-detailed / masterpiece / 300 DPI / "no AI generation tells"`. Fidelity comes from the API `quality` parameter, not adjectives. |
+| **Real negatives only** | A short exclusion clause for things you actually don't want, not pre-2026 boilerplate. |
 
-The result: outputs that are reproducible interpretations of explicit instructions rather than stochastic guesses.
+The result: high signal density. Every clause does concrete instructional work, so
+the load-bearing brand requirements survive all the way to the pixels.
 
-### Stability through specificity
+### Visual self-verification
 
-Every aspect of the image is explicitly described, leaving nothing to chance:
+The pipeline doesn't just generate and hope. After every image, it **opens the
+result and checks it against the brief** — packaging text intact, logo in the
+right corner and size, on-image text exact (and, for AminoVITAL, HSA-compliant),
+composition as specified. If a check fails, it changes one dimension and tries
+again, so you're shown a *verified* result instead of "here's an image, does it
+look right?"
 
-- Colors as `(#071D49)` and `(#D4A84E)`, never just "navy" and "gold"
-- Lighting as "key light from 10 o'clock at 5200K", never just "from the left"
-- Sizes as "occupying 26% of frame height at the lower-right third intersection"
-- Distances as "approximately 2 meters behind the subject"
-- Quantities as "exactly two slices" and "three potted plants"
+### Logo placement learned from your past posts
 
-The `modes/_shared.md` ruleset enforces this discipline — the LLM cannot hand-wave abstractly.
-
-### Mandatory visual inspection of past posts
-
-For brand-consistent logo placement, vague text instructions are not enough. Image Genius forces the prompt-generation LLM to actually **open and visually inspect** past Instagram posts for each SKU before writing the prompt:
+For brand-consistent logo placement, vague text instructions aren't enough. Image Genius has the prompt-generation LLM **open and inspect** the SKU's past Instagram posts before writing the logo clause:
 
 1. List past posts in `brand.yml` under `channels.<channel>.skus.<sku>.logo_references`
-2. The meta-prompt now contains a `MANDATORY PRE-WORK` block that instructs the LLM to use its Read tool to view each reference and extract:
-   - Exact corner (top-left/top-right/bottom-left/bottom-right)
+2. The meta-prompt's `PRE-WORK` block tells the LLM to view each reference and read off:
+   - Corner (top-left / top-right / bottom-left / bottom-right)
    - Logo width as % of canvas
    - Padding from edges as %
-   - Tagline arrangement (stacked/beside/below)
-3. The LLM then bakes these precise measurements directly into the image prompt — `"width 14%, padding 2.5% top, 2% right"` instead of `"top-right corner"`
+   - Tagline arrangement (stacked / beside / below)
+3. Those numbers go straight into the prompt — `"top-right, 14% width, 2.5% top / 2% right padding"` instead of just `"top-right corner"`
 
-This produces logo placement that matches the brand's established standard across every SKU automatically.
+Paired with the visual-verification step above, this keeps logo placement matching your established standard across every SKU.
 
 ### Multi-model choice — your subscription, your pick
 
@@ -95,18 +97,19 @@ You can switch at any time without losing your prompts or settings.
 
 ### Refine mode — surgical edits without regeneration drift
 
-The classic frustration: you generate something great, want to tweak just one detail, but the next generation has a different lighting, different composition, different gold halo around the product.
+The classic frustration: you generate something great, want to tweak just one detail, but the next generation comes back with different lighting, different composition, a different gold halo around the product.
 
-Image Genius solves this with `refine`:
+Image Genius solves this by editing the **actual image** through GPT Image 2's edit endpoint — not by regenerating from scratch:
 
-1. **Reverse-engineer** — feed your existing image to a vision-capable LLM, which produces a 800-1200 word reproduction prompt describing every visual detail.
-2. **Targeted edit** — you describe what to change; the engine applies ONLY that change to the reverse-engineered prompt.
-3. **Regenerate** — the new image preserves every detail (lighting, composition, materials, props, color halos) except your specific edit.
+1. **Change ONLY X** — you say what to change; the CLI builds a short `change ONLY X / preserve Y exactly` instruction.
+2. **Preserve the rest** — composition, packaging text, logo position, lighting and color grade are all listed as preserved, so the model leaves them untouched.
+3. **One round-trip** — the edit runs on the real pixels, so there's no image→prose→image detour and nothing to drift.
 
 ```powershell
-imagegen refine output/2026-05-27-aminovital-gold-01.png
-> Change the background text from "ENERGY" to "POWER UP"
+imagegen refine output/2026-05-27-aminovital-gold-01.png "change the headline from 'ENERGY' to 'POWER UP'"
 ```
+
+(`reverse-prompt` is still available as a fallback for reproducing an image you didn't generate here.)
 
 ### Channel and SKU aware
 
@@ -141,11 +144,11 @@ image-genius/
 |   +-- meta-prompt-builder.mjs   Assembles instructions for the LLM
 |   +-- prompt-engine.mjs         Orchestrator (detection -> meta-prompt -> CLI)
 +-- templates/
-|   +-- food.md                   13-section template for food photography
-|   +-- lifestyle.md              13-section template for lifestyle shots
-|   +-- product.md                13-section template for product hero shots
+|   +-- food.md                   7-block, 120-250 word template for food photography
+|   +-- lifestyle.md              7-block template for lifestyle shots
+|   +-- product.md                7-block template for product hero shots
 +-- modes/
-|   +-- _shared.md                Cross-cutting rules and stability anchors
+|   +-- _shared.md                Cross-cutting rules (lean-prompt grammar, verification)
 |   +-- generate.md               Generate-mode specifics
 +-- config/
 |   +-- brand.yml                 Channel + SKU catalog, brand identity, asset paths
@@ -206,7 +209,7 @@ Or interactive REPL:
 node cli.mjs
 ig> 一碗热腾腾的味之素拉面，暖色调
 ig> /regenerate
-ig> /refine output/2026-05-27-dryfoods-ramen-01.png
+ig> /refine output/2026-05-27-dryfoods-ramen-01.png 把背景换成暖色
 ig> /exit
 ```
 
@@ -238,13 +241,13 @@ function imagegen {
 | `imagegen` | Interactive REPL mode |
 | `imagegen "<description>"` | One-shot generate |
 | `imagegen regenerate` | Fresh generation from the last description |
-| `imagegen refine <image-path>` | Reverse-prompt + targeted edits |
+| `imagegen refine <image-path> "<change>"` | Edit an existing image — change ONLY X, preserve the rest |
 | `imagegen prompt-only "<desc>"` | Generate the prompt without calling the image API |
 | `imagegen init` | Re-run setup wizard |
 | `imagegen doctor` | Environment health check |
 | `imagegen config` | Show current configuration |
 
-REPL slash-commands (when inside `ig>`): `/regenerate`, `/refine <path>`, `/prompt <desc>`, `/config`, `/init`, `/exit`.
+REPL slash-commands (when inside `ig>`): `/regenerate`, `/refine <path> <change>`, `/prompt <desc>`, `/config`, `/init`, `/exit`.
 
 ### Debug / verbose mode
 
@@ -300,15 +303,33 @@ The pipeline auto-discovers everything from this file.
 
 ---
 
-## Why this works (the science)
+## Why this works
 
-Image generation models trade precision against randomness at every unspecified visual dimension. A 100-word prompt leaves hundreds of decisions to the model's prior distribution — lighting direction, exact colors, prop placement, material textures, atmospheric haze. Each unspecified dimension is a roll of the dice.
+GPT Image 2 is an *instruction-following* image model. It will honour the
+specifics you give it — but, like any model with a finite attention budget, it
+follows a prompt most reliably when that prompt is tight. There's a working band
+(roughly 120–250 words for this kind of brief) where every clause lands. Push far
+past it and the signal thins out: the brand-critical instructions — keep the
+packaging exact, place the logo here, render this exact compliant text — start to
+compete with filler and get dropped. That's the "context rot" you see as a long
+prompt quietly losing details.
 
-Long, hyper-specific prompts lock down nearly every visual decision, making the output a deterministic interpretation of explicit instructions rather than a stochastic guess. gpt-image-2's attention is wide enough to honor 1000+ word constraints faithfully.
+So Image Genius optimizes for **signal density, not word count**:
 
-Image Genius enforces this discipline automatically: you provide a one-sentence brief, the engine produces an 800+ word structured prompt with hex codes, grid coordinates, and lighting rigs.
-
-The same principle drives `refine` — instead of describing changes on top of a previous generation (which compounds randomness), we first establish a 1000-word ground-truth prompt from the actual image, then make surgical edits. The new output has the same level of specificity as the original generation's full context.
+- **Specify what matters, skip what doesn't.** Hex codes for brand and accent
+  colors, numeric logo placement, one light direction, one style anchor — and
+  nothing on the dimensions you don't care about. Over-specification is noise.
+- **Let the reference image do its job.** The real product photo is passed to the
+  API, so the prompt says "preserve reference #1" instead of re-describing the
+  label. Re-describing a reference just fights the pixels and invites drift.
+- **No magic words.** `4K / ultra-detailed / masterpiece / 300 DPI / "no AI tells"`
+  are pre-2026 habits that GPT Image 2 ignores or is hurt by. Fidelity comes from
+  the API `quality` parameter.
+- **Edit, don't re-roll.** `refine` changes the actual pixels through the edit
+  endpoint with a `change ONLY X / preserve Y` instruction — so the parts you
+  liked can't drift, with no image→prose→image round-trip.
+- **Verify before shipping.** The agent looks at every result and checks it
+  against the brief, then iterates one dimension at a time if needed.
 
 ---
 

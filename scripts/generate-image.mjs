@@ -9,13 +9,15 @@ const args = process.argv.slice(2);
 let promptFile = "drafts/last-prompt.json";
 let directPrompt = null;
 let forceMode = null;
+let editImage = null;               // edit endpoint: single input image to change
 const referenceImages = [];
 
 for (let i = 0; i < args.length; i++) {
   if (args[i] === "--prompt-file" && args[i + 1]) promptFile = args[i + 1];
   if (args[i] === "--prompt" && args[i + 1]) directPrompt = args[i + 1];
   if (args[i] === "--reference-image" && args[i + 1]) referenceImages.push(args[i + 1]);
-  if (args[i] === "--mode" && args[i + 1]) forceMode = args[i + 1]; // "api" or "manual"
+  if (args[i] === "--edit-image" && args[i + 1]) editImage = args[i + 1];
+  if (args[i] === "--mode" && args[i + 1]) forceMode = args[i + 1]; // "api" | "free-quota" | "manual"
 }
 
 const config = yaml.load(await fs.readFile("config/brand.yml", "utf-8"));
@@ -36,8 +38,20 @@ let productRefImages = [];
 let logoFileFromDraft = null;
 let logoPositionRefs = [];
 let skuFromDraft = null;
+let isEdit = false;
+let editInput = null;
 
-if (directPrompt) {
+if (editImage) {
+  // CLI edit: --edit-image <path> --prompt "change ONLY X / preserve Y"
+  isEdit = true;
+  editInput = editImage;
+  prompt = directPrompt;
+  description = "refine";
+  if (!prompt) {
+    console.error('ERROR: --edit-image requires --prompt "Edit the input image: change ONLY ...".');
+    process.exit(1);
+  }
+} else if (directPrompt) {
   prompt = directPrompt;
   description = directPrompt;
 } else {
@@ -51,17 +65,24 @@ if (directPrompt) {
   productRefImages = promptData.product_reference_images || [];
   logoFileFromDraft = promptData.logo_file || null;
   logoPositionRefs = promptData.logo_position_reference_images || [];
+  // Edit/refine draft: operate on the existing image, change ONLY what's asked.
+  if (promptData.edit === true && promptData.source_image) {
+    isEdit = true;
+    editInput = promptData.source_image;
+  }
 }
 
-// CLI --reference-image flags take precedence; otherwise fall back to draft file
-const refs = referenceImages.length > 0 ? referenceImages : promptDataReferences;
+// For an edit, the ONLY input to the model is the image being edited.
+const refs = isEdit
+  ? [editInput]
+  : (referenceImages.length > 0 ? referenceImages : promptDataReferences);
 
 // Verify each reference image exists
 for (const ref of refs) {
   try {
     await fs.access(ref);
   } catch {
-    console.error(`ERROR: Reference image not found: ${ref}`);
+    console.error(`ERROR: ${isEdit ? "Image to edit" : "Reference image"} not found: ${ref}`);
     process.exit(1);
   }
 }
@@ -71,6 +92,50 @@ const size = settingsOverride.size || defaults.image?.size || "1088x1360";
 const quality = settingsOverride.quality || defaults.image?.quality || "high";
 const outputDir = defaults.output?.directory || "output";
 const format = defaults.output?.format || "png";
+
+// ─── Validate size upfront (fast, clear failure instead of an opaque API error) ───
+function validateSize(s) {
+  const m = /^(\d+)x(\d+)$/i.exec(String(s).trim());
+  if (!m) {
+    console.error(`ERROR: size must be WxH (got "${s}"). Set defaults.image.size in config/brand.yml.`);
+    process.exit(1);
+  }
+  const w = Number(m[1]);
+  const h = Number(m[2]);
+  if (w <= 0 || h <= 0) {
+    console.error(`ERROR: size dimensions must be positive (got "${s}").`);
+    process.exit(1);
+  }
+  if (Math.max(w, h) >= 3840) {
+    console.error(`ERROR: longest side must be < 3840px (got ${Math.max(w, h)}px in "${s}").`);
+    process.exit(1);
+  }
+  const ratio = Math.max(w, h) / Math.min(w, h);
+  if (ratio > 3) {
+    console.error(`ERROR: aspect ratio must be <= 3:1 (got ${ratio.toFixed(2)}:1 in "${s}").`);
+    process.exit(1);
+  }
+}
+validateSize(size);
+
+// ─── Retry with exponential backoff on rate-limit / server errors ───
+async function withRetry(fn, { retries = 4, label = "request" } = {}) {
+  let lastErr;
+  for (let attempt = 0; attempt < retries; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      const status = err?.status;
+      const retryable = status === 429 || (typeof status === "number" && status >= 500);
+      if (!retryable || attempt === retries - 1) throw err;
+      const waitMs = Math.round((2 ** attempt) * 1000 + Math.random() * 250);
+      console.error(`  ⚠ ${label} failed (HTTP ${status}); retrying in ${(waitMs / 1000).toFixed(1)}s …`);
+      await new Promise((r) => setTimeout(r, waitMs));
+    }
+  }
+  throw lastErr;
+}
 
 // ─── Helper: build output filename ───
 function buildOutputPath() {
@@ -101,27 +166,61 @@ if (imageMode === "free-quota") {
   const filename = `${date}-${prefix}${slug}-${String(index).padStart(2, "0")}.${format}`;
   const outputPath = path.resolve(outputDir, filename);
 
-  // Build reference image instructions
-  const productRefsAbs = productRefImages.map((p) => path.resolve(p));
-  const logoFileAbs = logoFileFromDraft ? path.resolve(logoFileFromDraft) : null;
-  const logoPositionRefsAbs = logoPositionRefs.map((p) => path.resolve(p));
+  let codexRequest;
 
-  let referenceBlock = "";
-  if (productRefsAbs.length > 0 || logoFileAbs || logoPositionRefsAbs.length > 0) {
-    referenceBlock = `\n==================== REFERENCE IMAGES (MANDATORY) ====================\n`;
-    if (productRefsAbs.length > 0) {
-      referenceBlock += `\n[A] PRODUCT PHOTO REFERENCE — Pass this file directly to the image_gen tool as an input/reference image. The generated image MUST preserve every text character, color, design element, and packaging detail from this photo:\n${productRefsAbs.map((p) => `    ${p}`).join("\n")}\n`;
-    }
-    if (logoFileAbs) {
-      referenceBlock += `\n[B] BRAND LOGO FILE — Pass this file as a second input/reference to the image_gen tool. The generated image MUST contain this exact logo (preserving its glyph shapes and color) at the position specified in the prompt:\n    ${logoFileAbs}\n`;
-    }
-    if (logoPositionRefsAbs.length > 0) {
-      referenceBlock += `\n[C] LOGO POSITION REFERENCES — Past Instagram posts showing where the brand logo goes for this SKU. INSPECT these images visually using your view/read tool to determine the EXACT corner, size (as % of canvas width), padding, and tagline arrangement. Do NOT pass these as image_gen inputs — they are for YOU to inspect, then describe the placement to image_gen in the prompt:\n${logoPositionRefsAbs.map((p) => `    ${p}`).join("\n")}\n`;
-    }
-    referenceBlock += `\n========================================================================\n`;
-  }
+  if (isEdit) {
+    // ── Refine: precise local edit of an existing image ──
+    const editInputAbs = path.resolve(editInput);
+    console.log(`→ Edit mode — input: ${path.basename(editInputAbs)}`);
+    codexRequest = `TASK: Make a PRECISE LOCAL EDIT to an existing image using your built-in image_gen tool in edit mode.
 
-  const codexRequest = `TASK: Generate an Instagram brand image using your built-in image_gen tool, with the supplied reference images as MANDATORY inputs.
+==================== EDIT INSTRUCTION (use verbatim) ====================
+${prompt}
+========================================================================
+
+INPUT IMAGE (pass this file to image_gen as the image to edit):
+    ${editInputAbs}
+
+STEP 1 — Call image_gen in EDIT mode with the input image above and the edit
+instruction verbatim. Change ONLY what the instruction names; keep everything
+else (composition, packaging text, logo, lighting, background) exactly as in the
+input image. Do NOT re-describe or regenerate the whole image.
+
+STEP 2 — Save the result to this absolute path:
+    ${outputPath}
+
+STEP 3 — Output (only this, one line):
+    ${outputPath}
+
+==================== SPECS ====================
+  Model: ${model}    Size: ${size}    Quality: ${quality}    Format: ${format}
+
+CRITICAL RULES:
+  - This is an EDIT, not a fresh generation. Preserve everything not named.
+  - Do NOT fabricate new packaging text, label graphics, or logo variants.
+  - Save the binary PNG to the exact path above.`;
+  } else {
+    // ── Generation with reference images (product photo + logo) ──
+    const productRefsAbs = productRefImages.map((p) => path.resolve(p));
+    const logoFileAbs = logoFileFromDraft ? path.resolve(logoFileFromDraft) : null;
+    const logoPositionRefsAbs = logoPositionRefs.map((p) => path.resolve(p));
+
+    let referenceBlock = "";
+    if (productRefsAbs.length > 0 || logoFileAbs || logoPositionRefsAbs.length > 0) {
+      referenceBlock = `\n==================== REFERENCE IMAGES (MANDATORY) ====================\n`;
+      if (productRefsAbs.length > 0) {
+        referenceBlock += `\n[A] PRODUCT PHOTO REFERENCE — Pass this file directly to the image_gen tool as an input/reference image. The generated image MUST preserve every text character, color, design element, and packaging detail from this photo:\n${productRefsAbs.map((p) => `    ${p}`).join("\n")}\n`;
+      }
+      if (logoFileAbs) {
+        referenceBlock += `\n[B] BRAND LOGO FILE — Pass this file as a second input/reference to the image_gen tool. The generated image MUST contain this exact logo (preserving its glyph shapes and color) at the position specified in the prompt:\n    ${logoFileAbs}\n`;
+      }
+      if (logoPositionRefsAbs.length > 0) {
+        referenceBlock += `\n[C] LOGO POSITION REFERENCES — Past Instagram posts showing where the brand logo goes for this SKU. INSPECT these images visually using your view/read tool to determine the EXACT corner, size (as % of canvas width), padding, and tagline arrangement. Do NOT pass these as image_gen inputs — they are for YOU to inspect, then describe the placement to image_gen in the prompt:\n${logoPositionRefsAbs.map((p) => `    ${p}`).join("\n")}\n`;
+      }
+      referenceBlock += `\n========================================================================\n`;
+    }
+
+    codexRequest = `TASK: Generate an Instagram brand image using your built-in image_gen tool, with the supplied reference images as MANDATORY inputs.
 
 This is NOT pure text-to-image. You MUST use the reference images:
   - Product photo as a packaging-fidelity reference (so the generated package matches the real product)
@@ -149,7 +248,7 @@ STEP 3 — Save the result:
     ${outputPath}
 
 STEP 4 — Output (only this, one line):
-  ${outputPath}
+    ${outputPath}
 
 ==================== SPECS ====================
   Model: ${model}    Size: ${size}    Quality: ${quality}    Format: ${format}
@@ -160,6 +259,7 @@ CRITICAL RULES:
   - Do NOT modify, summarize, or shorten the image prompt
   - Do NOT fabricate new packaging text, label graphics, or logo variants — use only what's in the reference files
   - Save the binary PNG to the exact path above`;
+  }
 
   const verbose = process.env.IMAGEGEN_VERBOSE === "1";
   const { spawn } = await import("child_process");
@@ -168,20 +268,25 @@ CRITICAL RULES:
   const STABILITY_CHECK_MS = 1_500;
   const HEARTBEAT_INTERVAL_MS = 15_000;
 
-  // Print reference summary (clean, single block)
-  if (productRefsAbs.length > 0 || logoFileAbs || logoPositionRefsAbs.length > 0) {
-    console.log("→ References:");
-    if (productRefsAbs.length > 0) {
-      console.log(`    product: ${productRefsAbs.map((p) => path.basename(p)).join(", ")}`);
-    }
-    if (logoFileAbs) {
-      console.log(`    logo:    ${path.basename(logoFileAbs)}`);
-    }
-    if (logoPositionRefsAbs.length > 0) {
-      console.log(`    position refs: ${logoPositionRefsAbs.map((p) => path.basename(p)).join(", ")}`);
+  // Print reference summary (clean, single block) — generation only
+  if (!isEdit) {
+    const productRefsAbs = productRefImages.map((p) => path.resolve(p));
+    const logoFileAbs = logoFileFromDraft ? path.resolve(logoFileFromDraft) : null;
+    const logoPositionRefsAbs = logoPositionRefs.map((p) => path.resolve(p));
+    if (productRefsAbs.length > 0 || logoFileAbs || logoPositionRefsAbs.length > 0) {
+      console.log("→ References:");
+      if (productRefsAbs.length > 0) {
+        console.log(`    product: ${productRefsAbs.map((p) => path.basename(p)).join(", ")}`);
+      }
+      if (logoFileAbs) {
+        console.log(`    logo:    ${path.basename(logoFileAbs)}`);
+      }
+      if (logoPositionRefsAbs.length > 0) {
+        console.log(`    position refs: ${logoPositionRefsAbs.map((p) => path.basename(p)).join(", ")}`);
+      }
     }
   }
-  console.log("→ Generating image (free-quota mode)...");
+  console.log(`→ ${isEdit ? "Editing" : "Generating"} image (free-quota mode)...`);
 
   const codexProc = spawn("codex", ["exec"], {
     shell: true,
@@ -263,6 +368,7 @@ CRITICAL RULES:
     const stats = await fs.stat(outputPath);
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(0);
     console.log(`✓ Image saved: ${outputPath} (${(stats.size / 1024).toFixed(0)} KB, ${elapsed}s)`);
+    console.log(`  Next: open the image and verify packaging, logo, text and (AminoVITAL) HSA compliance before posting.`);
     if (!verbose) {
       console.log(`  (re-run with IMAGEGEN_VERBOSE=1 to see codex's internal output)`);
     }
@@ -319,17 +425,30 @@ const openai = new OpenAI();
 console.log(`Channel: ${channel || "(none)"}`);
 console.log(`Model: ${model}`);
 console.log(`Size: ${size} | Quality: ${quality}`);
-console.log(`Reference images: ${refs.length > 0 ? refs.join(", ") : "(none)"}`);
+if (isEdit) {
+  console.log(`Mode: edit | input: ${editInput}`);
+} else {
+  console.log(`Reference images: ${refs.length > 0 ? refs.join(", ") : "(none)"}`);
+}
 console.log(`Prompt length: ${prompt.length} chars / ~${prompt.split(/\s+/).length} words`);
 console.log(`Prompt preview: ${prompt.substring(0, 150)}...`);
-console.log("Generating...");
+console.log(isEdit ? "Editing..." : "Generating...");
 
 let imageBuffer;
+
+async function dataToBuffer(data) {
+  if (data.b64_json) return Buffer.from(data.b64_json, "base64");
+  if (data.url) {
+    const res = await fetch(data.url);
+    return Buffer.from(await res.arrayBuffer());
+  }
+  throw new Error("API response contained neither b64_json nor url.");
+}
 
 try {
   if (refs.length > 0) {
     if (!model.startsWith("gpt-image")) {
-      console.error(`ERROR: Reference images require gpt-image model; got "${model}".`);
+      console.error(`ERROR: ${isEdit ? "Editing" : "Reference images"} requires a gpt-image model; got "${model}".`);
       process.exit(1);
     }
     const mimeOf = (p) => {
@@ -337,42 +456,36 @@ try {
       if (ext === ".jpg" || ext === ".jpeg") return "image/jpeg";
       if (ext === ".png") return "image/png";
       if (ext === ".webp") return "image/webp";
-      console.error(`ERROR: Unsupported reference image extension: ${ext}. Use jpg/jpeg/png/webp.`);
+      console.error(`ERROR: Unsupported image extension: ${ext}. Use jpg/jpeg/png/webp.`);
       process.exit(1);
     };
     const imageFiles = await Promise.all(
       refs.map(async (p) => toFile(createReadStream(p), path.basename(p), { type: mimeOf(p) }))
     );
-    const response = await openai.images.edit({
-      model,
-      image: imageFiles.length === 1 ? imageFiles[0] : imageFiles,
-      prompt,
-      n: 1,
-      size,
-      quality,
-    });
-    const data = response.data[0];
-    if (data.b64_json) {
-      imageBuffer = Buffer.from(data.b64_json, "base64");
-    } else if (data.url) {
-      const res = await fetch(data.url);
-      imageBuffer = Buffer.from(await res.arrayBuffer());
-    }
+    const data = await withRetry(async () => {
+      const response = await openai.images.edit({
+        model,
+        image: imageFiles.length === 1 ? imageFiles[0] : imageFiles,
+        prompt,
+        n: 1,
+        size,
+        quality,
+      });
+      return response.data[0];
+    }, { label: "images.edit" });
+    imageBuffer = await dataToBuffer(data);
   } else if (model.startsWith("gpt-image")) {
-    const response = await openai.images.generate({
-      model,
-      prompt,
-      n: 1,
-      size,
-      quality,
-    });
-    const data = response.data[0];
-    if (data.b64_json) {
-      imageBuffer = Buffer.from(data.b64_json, "base64");
-    } else if (data.url) {
-      const res = await fetch(data.url);
-      imageBuffer = Buffer.from(await res.arrayBuffer());
-    }
+    const data = await withRetry(async () => {
+      const response = await openai.images.generate({
+        model,
+        prompt,
+        n: 1,
+        size,
+        quality,
+      });
+      return response.data[0];
+    }, { label: "images.generate" });
+    imageBuffer = await dataToBuffer(data);
   } else {
     const dalleQuality = quality === "high" ? "hd" : "standard";
     const dalleSize =
@@ -381,21 +494,24 @@ try {
       size === "1536x1024" ? "1792x1024" :
       "1024x1024";
 
-    const response = await openai.images.generate({
-      model,
-      prompt,
-      n: 1,
-      size: dalleSize,
-      quality: dalleQuality,
-      response_format: "b64_json",
-    });
-    imageBuffer = Buffer.from(response.data[0].b64_json, "base64");
+    const data = await withRetry(async () => {
+      const response = await openai.images.generate({
+        model,
+        prompt,
+        n: 1,
+        size: dalleSize,
+        quality: dalleQuality,
+        response_format: "b64_json",
+      });
+      return response.data[0];
+    }, { label: "images.generate (dalle)" });
+    imageBuffer = Buffer.from(data.b64_json, "base64");
   }
 } catch (err) {
   if (err.status === 401) {
     console.error("ERROR: Invalid API key. Check your .env file.");
   } else if (err.status === 429) {
-    console.error("ERROR: Rate limited. Wait a moment and try again.");
+    console.error("ERROR: Rate limited after retries. Wait a moment and try again.");
   } else if (err.status === 400 && err.message?.includes("safety")) {
     console.error("ERROR: Prompt rejected by content policy. Adjust the description.");
   } else {
@@ -430,3 +546,4 @@ const outputPath = path.join(outputDir, filename);
 await fs.writeFile(outputPath, imageBuffer);
 console.log(`\nDone! Image saved: ${outputPath}`);
 console.log(`Size: ${(imageBuffer.length / 1024).toFixed(0)} KB`);
+console.log(`Next: open the image and verify packaging, logo, text and (AminoVITAL) HSA compliance before posting.`);
