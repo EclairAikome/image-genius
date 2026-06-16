@@ -11,11 +11,11 @@
 
 ## The problem
 
-Hand-crafting on-brand Instagram images in Canva takes 1-2 hours per post. The common "ask Claude for a prompt, paste it into ChatGPT" shortcut speeds things up but has three persistent pain points:
+GPT Image 2 (April 2026) was a generational leap: it follows long, instructional prompts without losing detail, renders text correctly (Chinese / Japanese / Korean included), supports custom resolutions, and does precise local edits with a `change ONLY X / preserve Y` pattern. Getting a clean, on-brand Instagram image out of it *should* be easy. In practice, the usual "ask an LLM for a prompt, paste it into the image model" shortcut runs into three persistent problems:
 
-1. **Cross-app copy-paste fatigue** — endless back-and-forth between tabs, manually saving drafts.
+1. **Old prompt habits waste the model.** Reflexes carried over from earlier image models — stacking *4K, ultra-detailed, masterpiece, trending on artstation*, over-describing every dimension into 1000-word walls, and never actually looking at the result — are ignored or actively harmful on GPT Image 2. You burn generations on bloated prompts and mangled, off-brand output.
 2. **Prompts vary wildly across sessions** — same idea, different length, different style, different result.
-3. **Regeneration drifts** — ask GPT Image to tweak one thing, and it quietly changes the elements you wanted to keep.
+3. **Regeneration drifts** — ask the model to tweak one thing, and it quietly changes the elements you wanted to keep.
 
 **Image Genius** is a single PowerShell command that solves all three.
 
