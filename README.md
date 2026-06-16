@@ -40,6 +40,9 @@ art-direction brief** in a fixed 7-block order:
 Intent  →  Scene  →  Subject  →  Key details  →  Text  →  Style  →  Constraints
 ```
 
+Those seven blocks set the **order**. Six writing principles set the **quality**
+of what goes into them:
+
 | Principle | What it means |
 |---|---|
 | **Open with intent** | "Create a premium product hero photograph of …" — the opening selects the model's mode. Never "Professional commercial photography, ultra-detailed…". |
